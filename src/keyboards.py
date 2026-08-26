@@ -6,9 +6,9 @@ from typing import Optional
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 AD_LINKS = (
-    ("🤖 公益机器人 @example_plus_bot", "https://t.me/example_plus_bot"),
-    ("📢 频道 @example_plus", "https://t.me/example_plus"),
-    ("💬 交流群 @example_i", "https://t.me/example_i"),
+    ("🤖 店铺助手", "https://t.me/ExampleStoreRobot"),
+    ("📢 频道", "https://t.me/ExampleStoreChannel"),
+    ("💬 群组", "https://t.me/ExampleStoreGroup"),
 )
 
 
