@@ -19,10 +19,6 @@
     "src/tmdb_client.py": "6ac7bf097c6c343250ff1ede649f4bb2d845cb2e430374eed3acae5982915450",
     "src/user_settings.py": "dfcbc2384c2f457015fed48850b367a5ed1c48d97f26a2cdc9eaccd8f41cc4e9"
   },
-  "production_release": "20260915T145702Z-b51171327d99",
   "runtime_kind": "python",
-  "schema": 1,
-  "source_origin": "allowlisted production source snapshot; no matching Git commit",
-  "source_revision": null,
-  "verified_on": "2026-10-07"
+  "schema": 2
 }

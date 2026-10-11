@@ -21,7 +21,7 @@ jobs:
       - name: Verify and package final source
         run: |
           pip install -r requirements-dev.txt
-          python scripts/verify_production_source.py
+          python scripts/verify_source_manifest.py
           python scripts/secret_scan.py
           ruff check .
           pytest -q

@@ -31,13 +31,13 @@ with tarfile.open(archives[0]) as archive:
         assert not relative.endswith((".db", ".sqlite", ".log", ".pyc"))
         content[relative] = archive.extractfile(member).read()
     assert json.loads(content["PROVENANCE.json"]) == provenance
-    assert json.loads(content["docs/PRODUCTION_SOURCE.json"]) == provenance["production_source"]
+    assert json.loads(content["docs/SOURCE_MANIFEST.json"]) == provenance["source_manifest"]
     if provenance["target"] == "linux-amd64":
         binary = content["bin/pansou"]
         assert binary[:6] == b"\x7fELF\x02\x01", "ELF64 little-endian expected"
         assert int.from_bytes(binary[18:20], "little") == 62, "amd64 expected"
         assert "LICENSE" in content
     else:
-        for path, digest in provenance["production_source"]["files"].items():
+        for path, digest in provenance["source_manifest"]["files"].items():
             assert hashlib.sha256(content[path]).hexdigest() == digest, path
 print("Release verified:", provenance["version"], provenance["revision"], len(content), "files")

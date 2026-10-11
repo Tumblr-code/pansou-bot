@@ -29,8 +29,8 @@ jobs:
           cache: pip
       - name: Install locked dependencies
         run: python -m pip install -r requirements-dev.txt
-      - name: Verify production runtime source
-        run: python scripts/verify_production_source.py
+      - name: Verify source manifest
+        run: python scripts/verify_source_manifest.py
       - name: Validate tracked files for secrets
         run: python scripts/secret_scan.py
       - name: Compile and smoke import
@@ -61,7 +61,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: |
-          python scripts/verify_production_source.py
+          python scripts/verify_source_manifest.py
           python scripts/secret_scan.py
           python scripts/package_release.py --version v1.0.0
           python scripts/verify_release.py dist

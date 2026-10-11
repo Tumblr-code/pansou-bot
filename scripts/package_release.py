@@ -45,12 +45,11 @@ def package(version: str, output: Path) -> None:
                 ".env.example", "Dockerfile", "docker-compose.yml", "start.sh"}
         if allowed:
             payload[path] = git("show", "HEAD:" + path)
-    manifest = json.loads(payload["docs/PRODUCTION_SOURCE.json"])
+    manifest = json.loads(payload["docs/SOURCE_MANIFEST.json"])
     provenance = {
         "schema": 1, "repository": "https://github.com/Tumblr-code/" + PROJECT,
         "version": version, "revision": revision, "target": suffix,
-        "source_date_epoch": epoch, "production_source": manifest,
-        "production_deployed_by_this_release": False,
+        "source_date_epoch": epoch, "source_manifest": manifest,
         "license": "MIT" if PROJECT == "pansou" else "not declared by repository owner",
     }
     if PROJECT == "pansou":
@@ -58,7 +57,7 @@ def package(version: str, output: Path) -> None:
             source = Path(directory)
             with tarfile.open(fileobj=io.BytesIO(git("archive", "HEAD"))) as archive:
                 archive.extractall(source, filter="data")
-            subprocess.run([sys.executable, "scripts/verify_production_source.py"],
+            subprocess.run([sys.executable, "scripts/verify_source_manifest.py"],
                            cwd=source, check=True)
             env = dict(os.environ, CGO_ENABLED="0", GOOS="linux", GOARCH="amd64",
                        GOTOOLCHAIN="local")
@@ -89,7 +88,7 @@ def package(version: str, output: Path) -> None:
     else:
         for path, digest in manifest["files"].items():
             if hashlib.sha256(payload[path]).hexdigest() != digest:
-                raise SystemExit("production source mismatch: " + path)
+                raise SystemExit("source manifest mismatch: " + path)
         provenance["build_toolchain"] = "Python " + sys.version.split()[0]
     provenance_bytes = (json.dumps(provenance, indent=2, sort_keys=True) + "\n").encode()
     payload["PROVENANCE.json"] = provenance_bytes
