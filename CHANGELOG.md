@@ -7,7 +7,12 @@
 
 ## [Unreleased]
 
-### Production hardening
+### Documentation
+
+- README 与安装运维文档改写为面向所有读者的中英文教程，移除了旧的迁移记录
+- 源码清单改为 `docs/SOURCE_MANIFEST.json`，由 `scripts/verify_source_manifest.py` 校验，`--update` 可重新生成
+
+### Hardening
 
 ### Added
 
@@ -22,7 +27,7 @@
 - 正常关闭由 python-telegram-bot 生命周期管理，并关闭共享 HTTP 客户端与后台任务
 - JSON 日志真正应用 `LOG_LEVEL`，只记录耗时、结果数、缓存命中和错误类别等非敏感指标
 - 相同搜索请求继续合并并保留 120 秒缓存；等待者取消不会取消共享请求
-- 生产依赖按已验证版本精确锁定并缩减为实际运行所需包
+- 运行依赖按已验证版本精确锁定并缩减为实际运行所需包
 - PanSou 沙箱允许其 `bytedance/sonic` 运行时加载器调用 `mprotect`，其余非 root 与 systemd 防护保持不变
 - Bot 对 PanSou 使用弱依赖和启动顺序约束，PanSou 独立维护后 Bot 不会被永久停用
 

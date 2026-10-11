@@ -25,7 +25,7 @@ ALLOWED_FILES = {".env.example"}
 
 
 def candidate_files() -> list[Path]:
-    """只扫描 Git 已跟踪或已暂存文件，避免读取生产状态目录。"""
+    """只扫描 Git 已跟踪或已暂存文件，避免读取运行数据目录。"""
     if not (ROOT / ".git").exists():
         excluded = {".git", ".venv", "venv", "data", "__pycache__", ".pytest_cache"}
         return [

@@ -1,61 +1,132 @@
 # TG PanSou Bot
 
-[简体中文](README.md) · [Installation and operations](docs/OPERATIONS.en.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+[简体中文](README.md) · [Operations](docs/OPERATIONS.en.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
-A Telegram long-polling bot for [PanSou](https://github.com/Tumblr-code/pansou), with private/group search, storage-provider categories, pagination, refresh, optional TMDB metadata, and owner-checked delivery of complete magnet links. There is no HTTP API or online self-update command.
+A Telegram bot that sends your keywords to a [PanSou](https://github.com/Tumblr-code/pansou) backend and returns cloud-drive resources grouped by storage provider.
 
-## Production baseline for v1.0.0
+- Search in private chats and groups; results are grouped by provider, paginated and refreshable
+- Optional TMDB integration adds posters and summaries to film and TV searches
+- Magnet links are delivered only to the person who searched; very long links arrive as a text file, never truncated
+- Uses Telegram long polling, so no public IP, domain or HTTPS certificate is needed
+- No HTTP API and no in-chat self-update command; logs mask tokens and omit search terms and user IDs by default
 
-This release captures the running `RELEASE-ID` release inspected read-only on 2026-10-07. Its directory has no `.git`; the suffix is not presented as a verified Git SHA. The missing TMDB, media-view, magnet modules and deployed fixes were recovered through a source-only allowlist. [PRODUCTION_SOURCE.json](docs/PRODUCTION_SOURCE.json) records individual hashes without environment files, user settings or tokens.
+## Before you start
 
-This work synchronized source, documentation, CI and release assets. **It did not deploy, restart services or send customer messages.** The repository has no declared project license; this release does not select MIT or another license for the owner. The backend's MIT license does not license this Bot. Dependencies retain their own terms.
+You need four things:
 
-## Installation
+1. **A machine that can reach Telegram**, with Python 3.11 / 3.12 or Docker. If Telegram is not reachable directly, set a proxy in the configuration.
+2. **A bot token.** Open [@BotFather](https://t.me/BotFather) in Telegram, send `/newbot` and follow the prompts. It returns a token that looks like `123456789:AA...`.
+3. **Your own numeric Telegram ID**, to make yourself the administrator. Any "user ID" lookup bot will tell you.
+4. **A running PanSou backend.** Follow the [PanSou tutorial](https://github.com/Tumblr-code/pansou/blob/main/README.en.md) on the same machine; the default address is `http://localhost:8888`.
 
-Use Python 3.11/3.12, a Telegram Bot Token, and a reachable PanSou API. Download and verify the [Release](https://github.com/Tumblr-code/tg-pansou-bot/releases) assets:
+## Five-minute start
 
 ```bash
-sha256sum -c SHA256SUMS
-tar -xzf tg-pansou-bot-v1.0.0-source.tar.gz
-cd tg-pansou-bot-v1.0.0-source
+git clone https://github.com/Tumblr-code/tg-pansou-bot.git
+cd tg-pansou-bot
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 cp .env.example .env
-# Edit private values locally before starting:
+```
+
+Open `.env` in an editor and fill in at least these three values:
+
+```env
+TG_BOT_TOKEN=the token from BotFather
+PANSOU_API_URL=http://localhost:8888
+ADMIN_IDS=your numeric ID
+```
+
+Then start it:
+
+```bash
 .venv/bin/python main.py
 ```
 
-See the [operations guide](docs/OPERATIONS.en.md) for systemd, service accounts, upgrades, rollback, backup and recovery. Never place real tokens in Git, images or shell history. Run only one polling instance per token; do not use a production token to test a candidate.
+Send `/start` to your bot in Telegram, then `/search keyword` to try a search. Press `Ctrl+C` to stop.
 
-## Configuration and commands
+> One token can serve only one running instance. A second one fails with `Conflict` and neither receives messages.
 
-| Variable | Default or purpose |
-|---|---|
-| `TG_BOT_TOKEN` | Required private token |
-| `PANSOU_API_URL` | `http://localhost:8888` |
-| `PANSOU_API_TOKEN` | Optional backend Bearer token |
-| `DATA_DIR` | `./data`; use `/var/lib/tg-pansou-bot` for systemd |
-| `APP_VERSION` | `dev`; set a release/revision when deploying |
-| `DROP_PENDING_UPDATES` | `false`; preserve pending updates |
-| `MAX_CONCURRENT_SEARCHES` / `SEARCH_QUEUE_TIMEOUT` | `4` / `8` seconds |
-| `SEARCH_TIMEOUT` / `MAX_KEYWORD_LENGTH` | `30` seconds / `128` characters |
-| `ADMIN_IDS` | Comma-separated numeric administrator IDs |
-| `TMDB_READ_ACCESS_TOKEN` / `TMDB_API_KEY` | Optional; leave blank for resource-only search |
-| `HTTP_PROXY` / `HTTPS_PROXY` | Optional outbound proxies |
+## Run with Docker
 
-See [.env.example](.env.example). Search with `/search keyword` or `/s keyword`; source, plugin, channel, filter and settings administration retains its existing permission checks. Magnet delivery verifies the original search user and current result revision. Very long links are sent as text files without truncating the URI. Default JSON logs redact token/Bearer/API-key values and omit raw queries and user IDs.
+```bash
+git clone https://github.com/Tumblr-code/tg-pansou-bot.git
+cd tg-pansou-bot
+cp .env.example .env          # fill in the same three values
+mkdir -p data && sudo chown 1000:1000 data && chmod 700 data
+docker compose up -d --build
+docker compose logs -f
+```
 
-## Development and release
+The container runs as a non-root user with a read-only root filesystem and keeps user settings in `./data`. The example uses host networking and targets Linux: point the backend address at the host's `http://localhost:8888`.
+
+To start it at boot, restart it on failure and run it under a dedicated system account, see the [operations guide](docs/OPERATIONS.en.md).
+
+## Commands
+
+| Command | Purpose | Who |
+|---|---|---|
+| `/search keyword` | Search for resources | Everyone |
+| `/s keyword` | Search inside a group | Everyone |
+| `/help` | Show help | Everyone |
+| `/settings` | View or change search settings | Administrators |
+| `/types` | List supported storage providers | Administrators |
+| `/sources`, `/plugins`, `/channels` | Show sources, plugins and channels | Administrators |
+| `/filter` | Manage keyword filters | Administrators |
+| `/reset` | Reset search settings | Administrators |
+| `/status` | Check the bot and the backend | Administrators |
+| `/refresh` | Refresh the runtime cache | Administrators |
+
+While `ADMIN_IDS` is empty, administrator commands are closed to everyone.
+
+## Configuration
+
+Everything is set in `.env`. [.env.example](.env.example) has the full annotated list.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `TG_BOT_TOKEN` | none, required | The token from BotFather |
+| `PANSOU_API_URL` | `http://localhost:8888` | Address of the PanSou backend |
+| `PANSOU_API_TOKEN` | empty | Bearer token, when the backend has authentication enabled |
+| `ADMIN_IDS` | empty | Comma-separated numeric administrator IDs |
+| `DATA_DIR` | `./data` | Where user settings are stored |
+| `HTTP_PROXY` / `HTTPS_PROXY` | empty | Outbound proxy for Telegram and the backend |
+| `MAX_CONCURRENT_SEARCHES` / `SEARCH_QUEUE_TIMEOUT` | `4` / `8` s | Concurrent searches and the longest wait in the queue |
+| `SEARCH_TIMEOUT` / `MAX_KEYWORD_LENGTH` | `30` s / `128` chars | Per-search timeout and keyword length limit |
+| `TMDB_READ_ACCESS_TOKEN` / `TMDB_API_KEY` | empty | Optional; either one enables film and TV metadata |
+| `DROP_PENDING_UPDATES` | `false` | Whether to discard messages queued while the bot was offline |
+| `APP_VERSION` | `dev` | Version label shown by `/status` |
+
+## Troubleshooting
+
+- **`Conflict` / `getUpdates` at startup**: another instance is running with the same token. Stop it first.
+- **Messages arrive but searches return nothing**: check the backend first; `curl http://localhost:8888/api/health` should return `"status":"ok"`. Then check `PANSOU_API_URL`, the proxy and the backend token.
+- **Administrator commands do nothing**: `ADMIN_IDS` is empty or is not your own numeric ID.
+- **No film or TV metadata**: TMDB credentials are missing or TMDB is unreachable. Plain resource search keeps working.
+- **Settings cannot be saved**: check that `DATA_DIR` exists and is writable by the user running the bot.
+
+The [operations guide](docs/OPERATIONS.en.md) covers further diagnosis, upgrades, rollback, backup and recovery.
+
+## Security notes
+
+- The token is the bot's password. Keep it out of Git, images, issues and chats; if it leaks, replace it at once with `/revoke` in BotFather.
+- Make `.env` readable only by you: `chmod 600 .env`.
+- The PanSou backend has no authentication by default. Keep it on the loopback address and never expose port 8888 to the internet.
+
+## Development
 
 ```bash
 .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python scripts/verify_production_source.py
+.venv/bin/python scripts/verify_source_manifest.py
 .venv/bin/python scripts/secret_scan.py
 .venv/bin/ruff check .
 .venv/bin/pytest -q
 .venv/bin/python scripts/smoke_test.py
 .venv/bin/python -m pip check
-.venv/bin/python scripts/package_release.py --version v1.0.0
 ```
 
-The source package includes only allowlisted Git application source, templates, guides, provenance and checksums. It excludes the interpreter, virtual environments, private data and tokens. Direct dependency versions preserve production declarations; installation still downloads dependencies. This is not an offline wheel repository. CI uses mocks and never sends real Telegram notifications.
+Every test uses mocked data and mocked network clients; none needs a real token or sends anything to Telegram. After changing `main.py`, `requirements.txt` or `src/`, run `scripts/verify_source_manifest.py --update` to refresh the [source manifest](docs/SOURCE_MANIFEST.json). `scripts/package_release.py --version vX.Y.Z` builds a release archive containing only source, templates and documentation.
+
+## License
+
+This repository does not currently declare a project license. The PanSou backend is MIT-licensed, which does not extend to this project. Dependencies keep their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
