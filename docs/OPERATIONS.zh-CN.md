@@ -13,7 +13,7 @@
 ```bash
 git clone https://github.com/Tumblr-code/tg-pansou-bot.git
 cd tg-pansou-bot
-VERSION=$(git rev-parse --short HEAD)     # 也可以用发行版本号，例如 v1.0.0
+VERSION=$(git rev-parse --short HEAD)     # 用提交号给这次安装起个版本名
 
 sudo useradd --system --home /nonexistent --shell /usr/sbin/nologin tgpansou
 sudo install -d -m 0755 /opt/tg-pansou-bot/releases
@@ -118,4 +118,4 @@ sudo ./scripts/activate_release.sh /opt/tg-pansou-bot/previous
 
 ## 发布说明
 
-main 分支和 PR 只运行 CI。正式的 GitHub Release 会附上源码包、`PROVENANCE.json` 和 `SHA256SUMS`，下载后先运行 `sha256sum -c SHA256SUMS` 校验。发布只上传文件，不会替任何人部署或重启服务。
+目前没有发行版，请按本教程从源码安装。main 分支和 PR 只运行 CI；以后若有正式的 GitHub Release，会附上源码包、`PROVENANCE.json` 和 `SHA256SUMS`，下载后先运行 `sha256sum -c SHA256SUMS` 校验。发布只上传文件，不会替任何人部署或重启服务。
