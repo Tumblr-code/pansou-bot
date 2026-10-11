@@ -13,7 +13,7 @@ You need Python 3.11 / 3.12 with venv, `ca-certificates`, and a PanSou backend t
 ```bash
 git clone https://github.com/Tumblr-code/tg-pansou-bot.git
 cd tg-pansou-bot
-VERSION=$(git rev-parse --short HEAD)     # or a release version such as v1.0.0
+VERSION=$(git rev-parse --short HEAD)     # the commit id names this install
 
 sudo useradd --system --home /nonexistent --shell /usr/sbin/nologin tgpansou
 sudo install -d -m 0755 /opt/tg-pansou-bot/releases
@@ -118,4 +118,4 @@ Rehearse recovery in an isolated directory with a placeholder token and without 
 
 ## Releases
 
-The main branch and pull requests only run CI. A final GitHub Release carries the source archive, `PROVENANCE.json` and `SHA256SUMS`; run `sha256sum -c SHA256SUMS` after downloading. Publishing uploads files only: it never deploys or restarts anything for anyone.
+There is currently no release; install from source as this guide describes. The main branch and pull requests only run CI. A future final GitHub Release would carry the source archive, `PROVENANCE.json` and `SHA256SUMS`; run `sha256sum -c SHA256SUMS` after downloading. Publishing uploads files only: it never deploys or restarts anything for anyone.
