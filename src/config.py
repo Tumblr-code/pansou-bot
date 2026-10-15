@@ -19,9 +19,21 @@ class Settings(BaseSettings):
     # Telegram Bot 配置
     tg_bot_token: str = Field(..., description="Telegram Bot Token")
     
-    # Pansou API 配置
-    pansou_api_url: str = Field(default="http://localhost:8888", description="Pansou API 地址")
-    pansou_api_token: Optional[str] = Field(default=None, description="Pansou API 认证 Token")
+    # 内置 PanSou 后端：由机器人启动并看护
+    backend_port: int = Field(default=8888, ge=1, le=65535, description="内置后端端口")
+    backend_bundled_dir: Path = Field(
+        default=Path("/opt/pansou"), description="镜像自带的后端目录"
+    )
+    backend_start_timeout: int = Field(default=60, ge=5, le=600, description="后端启动等待秒数")
+    backend_update_repo: str = Field(
+        default="Tumblr-code/pansou-bot",
+        pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+        description="发布后端版本的 GitHub 仓库",
+    )
+    backend_update_check_hours: int = Field(
+        default=24, ge=0, le=720, description="自动检查后端更新的间隔，0 表示关闭"
+    )
+    backend_auto_upgrade: bool = Field(default=False, description="发现新版本时自动升级")
 
     # 可选影视资料；留空时继续使用普通资源搜索
     tmdb_read_access_token: Optional[str] = Field(
@@ -86,6 +98,9 @@ class Settings(BaseSettings):
             raise ValueError("DEFAULT_RESULT_LIMIT cannot exceed MAX_RESULT_LIMIT")
         return self
     
+    def backend_url(self) -> str:
+        return f"http://127.0.0.1:{self.backend_port}"
+
     def get_proxies(self) -> Optional[dict]:
         """获取代理配置"""
         proxies = {}

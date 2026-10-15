@@ -12,6 +12,7 @@ from telegram.ext import (
     filters,
 )
 
+from backend_commands import CALLBACK_PATTERN as BACKEND_CALLBACK_PATTERN
 from bot_config import create_optimized_request
 from config import settings
 
@@ -29,6 +30,9 @@ class BotHandlerSet:
     reset: Callable
     status: Callable
     refresh: Callable
+    backend: Callable
+    upgrade: Callable
+    backend_callback: Callable
     search: Callable
     callback: Callable
     private_message: Callable
@@ -62,6 +66,8 @@ def create_application(
         ("reset", handlers.reset),
         ("status", handlers.status),
         ("refresh", handlers.refresh),
+        ("backend", handlers.backend),
+        ("upgrade", handlers.upgrade),
         ("search", handlers.search),
     ):
         application.add_handler(CommandHandler(name, handler))
@@ -72,6 +78,9 @@ def create_application(
             handlers.search,
             filters=filters.ChatType.GROUPS | filters.ChatType.SUPERGROUP,
         )
+    )
+    application.add_handler(
+        CallbackQueryHandler(handlers.backend_callback, pattern=BACKEND_CALLBACK_PATTERN)
     )
     application.add_handler(CallbackQueryHandler(handlers.callback))
     application.add_handler(

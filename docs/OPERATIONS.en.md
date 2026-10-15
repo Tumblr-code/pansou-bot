@@ -1,121 +1,127 @@
-# TG PanSou Bot installation and operations
+# PanSou Bot operations
 
-[简体中文](OPERATIONS.zh-CN.md) · [Home](../README.en.md)
+[中文](OPERATIONS.zh-CN.md) · [Home](../README.en.md)
 
-This guide installs the bot as a long-running system service with a dedicated account, start at boot and restart on failure, and then covers upgrades, rollback and backups. To just try it out, the [five-minute start](../README.en.md#five-minute-start) is enough.
+This guide covers running the bot long term: what is in the container, where data lives, how to upgrade and roll back, how to back up, and how to install without Docker. To just get it running, the [five-minute start](../README.en.md#five-minute-start) is enough.
 
-Examples target Ubuntu 24.04 with systemd. Replace anything in angle brackets with your own value.
-
-## Install as a system service
-
-You need Python 3.11 / 3.12 with venv, `ca-certificates`, and a PanSou backend that is already reachable.
-
-```bash
-git clone https://github.com/Tumblr-code/tg-pansou-bot.git
-cd tg-pansou-bot
-VERSION=$(git rev-parse --short HEAD)     # the commit id names this install
-
-sudo useradd --system --home /nonexistent --shell /usr/sbin/nologin tgpansou
-sudo install -d -m 0755 /opt/tg-pansou-bot/releases
-sudo install -d -o tgpansou -g tgpansou -m 0700 /var/lib/tg-pansou-bot
-sudo install -d -o root -g tgpansou -m 0750 /etc/tg-pansou-bot
-
-git archive --format=tar --prefix="$VERSION/" HEAD | sudo tar -x -C /opt/tg-pansou-bot/releases
-sudo python3 -m venv "/opt/tg-pansou-bot/releases/$VERSION/.venv"
-sudo "/opt/tg-pansou-bot/releases/$VERSION/.venv/bin/pip" install -r "/opt/tg-pansou-bot/releases/$VERSION/requirements.txt"
-sudo chown -R root:root "/opt/tg-pansou-bot/releases/$VERSION"
-sudo chmod -R go-w "/opt/tg-pansou-bot/releases/$VERSION"
-
-sudo install -o root -g tgpansou -m 0640 .env.example /etc/tg-pansou-bot/bot.env
-sudoedit /etc/tg-pansou-bot/bot.env
-
-sudo install -m 0644 deploy/systemd/tg-pansou-bot.service /etc/systemd/system/
-sudo ln -s "/opt/tg-pansou-bot/releases/$VERSION" /opt/tg-pansou-bot/current
-sudo systemctl daemon-reload
-sudo systemctl enable --now tg-pansou-bot.service
-```
-
-The resulting layout:
+## What runs in the container
 
 ```text
-/opt/tg-pansou-bot/releases/<version>/   program and its own virtual environment, owned by root, not writable by the service account
-/opt/tg-pansou-bot/current               link to the active version
-/etc/tg-pansou-bot/bot.env               configuration and token, 0640 root:tgpansou
-/var/lib/tg-pansou-bot/                  user settings, 0700 tgpansou:tgpansou
+tini                     PID 1, forwards signals and reaps children
+└─ python main.py        the bot
+   └─ pansou             the PanSou backend, listening on port 8888 inside the container only
 ```
 
-Set at least these in `/etc/tg-pansou-bot/bot.env`:
+At start-up the bot launches the backend and waits for its health check (`/api/health`) before taking messages. If the backend exits unexpectedly it is restarted, with the delay growing from 1 to 30 seconds. If a build installed by an online upgrade crashes three times within two minutes, the bot falls back to the previous build.
 
-```env
-TG_BOT_TOKEN=<your token>
-PANSOU_API_URL=http://localhost:8888
-ADMIN_IDS=<your numeric ID>
-DATA_DIR=/var/lib/tg-pansou-bot
-APP_VERSION=<version>
+The image's root filesystem is read-only; everything writable lives in the directory mounted at `/data`:
+
+```text
+data/
+├─ user_settings.json        users' search settings
+└─ backend/
+   ├─ state.json             current backend build, previous build, builds that failed to start
+   ├─ releases/<commit>/     builds downloaded by online upgrades (at most two kept)
+   ├─ cache/                 the backend's search cache
+   └─ work/                  the backend's working directory
 ```
 
-Keep `DROP_PENDING_UPDATES=false`. Add one TMDB credential only if you want film and TV metadata; with both empty TMDB is not used. Configuration and the token live in this file only, never in the program directory.
+The backend bundled with the image is in `/opt/pansou/`; its revision is recorded in `backend/UPSTREAM` in this repository. When `data/backend/state.json` is missing or points at an unusable build, the bundled build runs.
 
-`deploy/systemd/pansou-native.service` and the port guard script in this repository are for the PanSou backend; the [PanSou operations guide](https://github.com/Tumblr-code/pansou/blob/main/docs/OPERATIONS.en.md) explains how to install them. The bot's unit depends on the backend only weakly: the bot still starts when the backend is absent or stopped, and searches fail until it returns.
-
-## Docker
-
-`docker-compose.yml` uses host networking, a non-root user, a read-only root filesystem and a separate `/data`. Create `./data` owned by uid/gid 1000 and readable only by it, fill in `.env`, then run `docker compose up -d --build`. The host-network example targets Linux; point the backend address at the host loopback.
-
-Do not run the systemd and Docker variants at the same time with one token.
-
-## Verify
+## Everyday tasks
 
 ```bash
-systemctl is-active tg-pansou-bot.service
-systemctl show -p MainPID,NRestarts tg-pansou-bot.service
-journalctl -u tg-pansou-bot.service -n 50 --no-pager
+docker compose logs -f --tail=100     # logs
+docker compose restart                # restart
+docker compose down                   # stop and remove the container (data is untouched)
+docker compose ps                     # state; HEALTHY means the backend health check passes
 ```
 
-Once the process is running with `NRestarts` at 0, exercise it in Telegram: `/status`, one search, a category switch, a page turn. An active unit does not prove those work.
+Logs are JSON. The bot does not log search terms or user IDs by default and masks the token; backend logs are passed through as they are.
 
-Review and redact logs before posting them in an issue.
+## Upgrading
+
+**Backend**: send `/upgrade` in Telegram, see the [home page](../README.en.md#upgrading-the-backend-online). If you do not want online upgrades, set `BACKEND_UPDATE_CHECK_HOURS` to `0` and upgrade by updating the image.
+
+**The bot and the bundled backend**:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+If you build yourself: `git pull && docker compose up -d --build`.
+
+If an online upgrade installed a build newer than the one in the new image, the container keeps running the upgraded build after re-creation. To go back to the bundled build, send `/upgrade rollback` until `/backend` shows "镜像自带" (bundled), or stop the container and delete `data/backend/state.json`.
+
+**Rolling back the image**: in `docker-compose.yml`, set `image:` to a `sha-<commit>` tag and run `docker compose up -d`. Available tags are on the repository's Packages page.
+
+## Backup and restore
+
+Only two things need backing up: `.env` and `data/user_settings.json`. Everything in `data/backend/` can be downloaded or regenerated.
+
+```bash
+tar -czf pansou-bot-backup-$(date +%F).tar.gz .env data/user_settings.json
+```
+
+To restore, stop the container, put both files back, make sure `data` belongs to UID 1000, and start again.
+
+## Backend configuration
+
+Variables in `.env` are passed to the backend as they are, except `TG_BOT_TOKEN`, `TMDB_READ_ACCESS_TOKEN` and `TMDB_API_KEY`. The bot sets `PORT` and `CACHE_PATH` itself.
+
+When `CHANNELS`, `ENABLED_PLUGINS` and the like are empty, the defaults shipped with the running backend build apply (taken from upstream's Dockerfile and stored in each build's `defaults.env`). That way plugins added or removed upstream follow along when the backend is upgraded; values you set yourself always win.
+
+## All backend settings
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BACKEND_PORT` | `8888` | Port the backend listens on inside the container, used only by the bot |
+| `BACKEND_START_TIMEOUT` | `60` | Seconds to wait for the backend health check |
+| `BACKEND_UPDATE_REPO` | `Tumblr-code/pansou-bot` | GitHub repository whose Releases provide new backend builds |
+| `BACKEND_UPDATE_CHECK_HOURS` | `24` | Automatic check interval; `0` turns it off (`/upgrade` still works) |
+| `BACKEND_AUTO_UPGRADE` | `false` | Install new builds as soon as they are found |
+| `BACKEND_BUNDLED_DIR` | `/opt/pansou` | Where the bundled backend lives; normally left alone |
+
+If you fork this repository and want backends built by your fork, point `BACKEND_UPDATE_REPO` at it: the fork's Backend release workflow publishes daily in the same way.
+
+## Without Docker
+
+Needs Python 3.11 / 3.12, Go 1.25 and git. Compile the backend from upstream source first, then run the bot; the bot starts that backend itself:
+
+```bash
+git clone https://github.com/Tumblr-code/pansou-bot.git
+cd pansou-bot
+sh backend/build.sh --arch amd64 --out "$PWD/pansou-backend"     # arm64 on ARM machines
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cp .env.example .env     # fill in TG_BOT_TOKEN and ADMIN_IDS, and add the two lines below
+```
+
+```env
+BACKEND_BUNDLED_DIR=/full/path/to/pansou-bot/pansou-backend
+DATA_DIR=./data
+```
+
+Then run `.venv/bin/python main.py`. Online upgrades work here too. To start at boot, write a systemd service with `WorkingDirectory` set to the checkout and `ExecStart` set to `.venv/bin/python main.py`, running as a dedicated unprivileged account that can write to `DATA_DIR`.
 
 ## Troubleshooting
 
-- **`Conflict` / `getUpdates`**: another instance is polling with the same token. Find and stop it; do not clear pending updates as a workaround.
-- **Backend unavailable**: check the PanSou health endpoint on the same host, then the address, proxy and authentication settings. Do not disable backend authentication or open its port to the internet to get searches back.
-- **Settings cannot be written**: check `DATA_DIR`, its ownership (0700) and the writable paths in the unit. A malformed or damaged settings file is set aside; keep it while you investigate.
-- **TMDB unavailable**: check the credential and outbound access. Resource search keeps working when metadata fails.
+| Symptom | Where to look |
+|---|---|
+| `backend_missing` | The image has no backend: when building yourself, the Go build failed; check the build output |
+| `backend_port_in_use` | Port 8888 is taken. Cannot happen in the container; without Docker, pick another `BACKEND_PORT` |
+| `backend_start_failed` | The backend did not pass its health check within `BACKEND_START_TIMEOUT`; read the backend log just before it |
+| `backend_crash_loop_fallback` | An upgraded build kept crashing and the bot went back to the previous one |
+| `backend_update_check_failed` | GitHub is unreachable; check the network or `HTTPS_PROXY` |
+| Container unhealthy | The backend is unhealthy. `/backend` shows why, and the log has matching `backend_` events |
 
-Offline checks that need no real token: `scripts/smoke_test.py` and `pytest`.
+## Where releases come from
 
-## Upgrade and rollback
+| Workflow | Trigger | Output |
+|---|---|---|
+| CI | PRs and main | Python tests; builds the image and starts the backend inside it once |
+| Image | main, `v*` tags | `ghcr.io/tumblr-code/pansou-bot` image: `latest`, `sha-<commit>`, version tags |
+| Backend release | daily, manual | `backend-<date>-<commit>` release: archives for both architectures, `SHA256SUMS`, build provenance |
 
-1. Get the new version into a new `releases/<version>` directory with its own virtual environment and dependencies, exactly as in the first install.
-2. Run the offline checks there. Do not start a second instance with the token that is in use.
-3. Stop the bot and back up `/var/lib/tg-pansou-bot`.
-4. Switch and start:
-
-```bash
-sudo ./scripts/activate_release.sh /opt/tg-pansou-bot/releases/<new version>
-```
-
-The script saves the old `current` as `previous`, switches atomically, starts the service and checks it; if startup fails it points back to the old version. After a successful start, still walk through the Verify section.
-
-To roll back:
-
-```bash
-sudo ./scripts/activate_release.sh /opt/tg-pansou-bot/previous
-```
-
-Before rolling back, confirm the older version can read the current settings files, and never overwrite newer user settings with older data.
-
-## Backup and recovery
-
-Back up `/var/lib/tg-pansou-bot` (user settings), `/etc/tg-pansou-bot` (configuration and token), the unit file, and the version `current` points to.
-
-- Stop the bot before taking a backup.
-- Use a 0700 directory and 0600 files, record checksums, encrypt, and store the result on another machine.
-- A backup contains the token and user settings. Never upload it to GitHub or any public place.
-
-Rehearse recovery in an isolated directory with a placeholder token and without starting real polling: check the JSON structure and ownership, then run the offline smoke test and the test suite. For a real recovery, stop the only running instance, restore a matching version and data, then verify. Keep any files that were set aside, and do not blindly overwrite newer data with older data.
-
-## Releases
-
-There is currently no release; install from source as this guide describes. The main branch and pull requests only run CI. A future final GitHub Release would carry the source archive, `PROVENANCE.json` and `SHA256SUMS`; run `sha256sum -c SHA256SUMS` after downloading. Publishing uploads files only: it never deploys or restarts anything for anyone.
+Backend releases are always compiled from the source of upstream [fish2018/pansou](https://github.com/fish2018/pansou); this repository does not modify backend code. To publish a specific upstream commit, run Backend release from Actions with the full commit SHA. To move the bundled build to upstream's latest commit, run `scripts/bump_backend.sh` and open a PR.

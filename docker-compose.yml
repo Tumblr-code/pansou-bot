@@ -1,13 +1,10 @@
 services:
-  tg-pansou-bot:
+  pansou-bot:
+    image: ghcr.io/tumblr-code/pansou-bot:latest
     build: .
-    container_name: tg-pansou-bot
+    container_name: pansou-bot
     env_file:
       - .env
-    environment:
-      PYTHONUNBUFFERED: "1"
-      DATA_DIR: /data
-      DROP_PENDING_UPDATES: "false"
     volumes:
       - ./data:/data
     restart: unless-stopped
@@ -18,4 +15,3 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    network_mode: host

@@ -99,7 +99,7 @@ class PansouClient:
         if hasattr(self, '_initialized') and self._initialized:
             return
         self._initialized = True
-        self.base_url = settings.pansou_api_url.rstrip('/')
+        self.base_url = settings.backend_url()
         self.timeout = settings.search_timeout
         self.headers = {}
         self.result_cache_ttl = 120
@@ -115,19 +115,15 @@ class PansouClient:
         self._service_info_cache_expires_at = 0.0
         self._service_info_task: Optional[asyncio.Task] = None
         self._search_semaphore = asyncio.Semaphore(settings.max_concurrent_searches)
-        if settings.pansou_api_token:
-            self.headers["Authorization"] = f"Bearer {settings.pansou_api_token}"
     
     async def _get_client(self) -> httpx.AsyncClient:
         """获取或创建 HTTP 客户端（单例模式）"""
         if self._client is None or self._client.is_closed:
             async with self._lock:
                 if self._client is None or self._client.is_closed:
+                    # 后端在本机，不走代理：代理通常连不到容器内的 127.0.0.1
                     proxy = None
-                    proxies = settings.get_proxies()
-                    if proxies:
-                        proxy = proxies.get('https://') or proxies.get('http://')
-                    
+
                     timeout = httpx.Timeout(
                         connect=5.0,
                         read=float(self.timeout),

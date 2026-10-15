@@ -7,6 +7,32 @@
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-15
+
+项目改名为 **PanSou Bot**（仓库 `Tumblr-code/pansou-bot`，原 `tg-pansou-bot`），机器人和 PanSou 后端合并为一个 Docker 镜像。
+
+### Added
+
+- 内置 PanSou 后端：镜像里自带从上游 fish2018/pansou 源码编译的后端，机器人负责启动、健康检查、崩溃重启和关闭
+- 在线升级：`/upgrade` 从 GitHub Releases 下载新后端，核对 SHA256、通过健康检查后才切换，失败自动恢复；`/upgrade rollback` 回滚；升级后的版本连续崩溃时自动退回
+- `/backend` 查看后端版本和状态；`/status` 也显示后端信息
+- 定时检查后端新版本并私信管理员（`BACKEND_UPDATE_CHECK_HOURS`），可选全自动升级（`BACKEND_AUTO_UPGRADE`）
+- Backend release 工作流每天跟踪上游，编译 amd64/arm64 后端并附带构建来源证明发布
+- Image 工作流发布 `ghcr.io/tumblr-code/pansou-bot` 多架构镜像；CI 在镜像里实际启动一次后端
+
+### Changed
+
+- Docker 运行方式改为单容器、桥接网络，不再需要 host 网络和单独部署的后端
+- 访问本机后端时不再经过 `HTTP_PROXY` / `HTTPS_PROXY`
+- 后端的 `CHANNELS`、`ENABLED_PLUGINS` 默认值跟随所运行的后端版本
+
+### Removed
+
+- 不再支持连接单独部署的 PanSou：`PANSOU_API_URL`、`PANSOU_API_TOKEN` 已移除，后端始终由机器人在本机启动
+- systemd 单元、端口守卫脚本、源码发行包脚本和 `docs/SOURCE_MANIFEST.json`；独立部署后端的旧方式见 3.0.0 之前的版本
+
+## 2026-10 生产加固（未单独发版）
+
 ### Documentation
 
 - README 与安装运维文档改写为面向所有读者的中英文教程，移除了旧的迁移记录
