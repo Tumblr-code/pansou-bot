@@ -1,6 +1,7 @@
 """Bot configuration."""
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Literal, Optional
+from urllib.parse import urlparse
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -22,6 +23,25 @@ class Settings(BaseSettings):
     # Pansou API 配置
     pansou_api_url: str = Field(default="http://localhost:8888", description="Pansou API 地址")
     pansou_api_token: Optional[str] = Field(default=None, description="Pansou API 认证 Token")
+
+    # 内置后端：builtin 由机器人启动并看护 PanSou 进程；external 连接 PANSOU_API_URL
+    pansou_backend: Literal["builtin", "external"] = Field(
+        default="external", description="后端模式"
+    )
+    backend_port: int = Field(default=8888, ge=1, le=65535, description="内置后端端口")
+    backend_bundled_dir: Path = Field(
+        default=Path("/opt/pansou"), description="镜像自带的后端目录"
+    )
+    backend_start_timeout: int = Field(default=60, ge=5, le=600, description="后端启动等待秒数")
+    backend_update_repo: str = Field(
+        default="Tumblr-code/pansou-bot",
+        pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+        description="发布后端版本的 GitHub 仓库",
+    )
+    backend_update_check_hours: int = Field(
+        default=24, ge=0, le=720, description="自动检查后端更新的间隔，0 表示关闭"
+    )
+    backend_auto_upgrade: bool = Field(default=False, description="发现新版本时自动升级")
 
     # 可选影视资料；留空时继续使用普通资源搜索
     tmdb_read_access_token: Optional[str] = Field(
@@ -86,6 +106,20 @@ class Settings(BaseSettings):
             raise ValueError("DEFAULT_RESULT_LIMIT cannot exceed MAX_RESULT_LIMIT")
         return self
     
+    @property
+    def builtin_backend(self) -> bool:
+        return self.pansou_backend == "builtin"
+
+    def effective_pansou_api_url(self) -> str:
+        """内置模式下始终连接本机后端，忽略 PANSOU_API_URL。"""
+        if self.builtin_backend:
+            return f"http://127.0.0.1:{self.backend_port}"
+        return self.pansou_api_url.rstrip("/")
+
+    def pansou_api_is_local(self) -> bool:
+        host = (urlparse(self.effective_pansou_api_url()).hostname or "").lower()
+        return host in {"localhost", "127.0.0.1", "::1"}
+
     def get_proxies(self) -> Optional[dict]:
         """获取代理配置"""
         proxies = {}

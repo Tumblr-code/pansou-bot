@@ -28,6 +28,11 @@ MODULES = [
     "search_flow",
     "pansou_client",
     "user_settings",
+    "backend_store",
+    "backend_manager",
+    "backend_updater",
+    "backend_commands",
+    "backend_check",
     "bot",
 ]
 

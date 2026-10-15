@@ -29,8 +29,6 @@ jobs:
           cache: pip
       - name: Install locked dependencies
         run: python -m pip install -r requirements-dev.txt
-      - name: Verify source manifest
-        run: python scripts/verify_source_manifest.py
       - name: Validate tracked files for secrets
         run: python scripts/secret_scan.py
       - name: Compile and smoke import
@@ -49,23 +47,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
       - name: Build image
-        run: docker build -t tg-pansou-bot:ci .
-
-  package:
-    name: Source release package
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+        uses: docker/build-push-action@v6
         with:
-          python-version: '3.12'
-      - run: |
-          python scripts/verify_source_manifest.py
-          python scripts/secret_scan.py
-          python scripts/package_release.py --version v1.0.0
-          python scripts/verify_release.py dist
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tg-pansou-bot-source-${{ github.sha }}
-          path: dist/*
+          context: .
+          load: true
+          tags: pansou-bot:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Bundled backend starts and passes its health check
+        run: docker run --rm --read-only --tmpfs /tmp pansou-bot:ci python main.py check-backend
+      - name: Bundled backend carries upstream defaults
+        run: |
+          docker run --rm --entrypoint sh pansou-bot:ci -c \
+            'cat /opt/pansou/VERSION.json && grep -q "^CHANNELS=" /opt/pansou/defaults.env && grep -q "^ENABLED_PLUGINS=" /opt/pansou/defaults.env'

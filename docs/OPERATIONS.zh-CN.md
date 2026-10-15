@@ -1,121 +1,156 @@
-# TG PanSou Bot 安装与运维
+# PanSou Bot 安装与运维
 
 [English](OPERATIONS.en.md) · [首页](../README.md)
 
-这份教程讲怎样把机器人装成一个长期运行的系统服务：专用账号、开机自启、崩溃重启，以及之后的升级、回退和备份。只想先跑起来试试，看[首页的五分钟上手](../README.md#五分钟上手)就够了。
+这份教程讲长期运行时会用到的内容：容器里有什么、数据放在哪、怎样升级和回滚、怎样备份，以及不用 Docker 时怎么装。只想先跑起来，看[首页的五分钟上手](../README.md#五分钟上手)就够了。
 
-示例以 Ubuntu 24.04 + systemd 为准。尖括号里的内容换成你自己的值。
-
-## 安装为系统服务
-
-需要 Python 3.11 / 3.12（含 venv）、`ca-certificates`，以及一个已经能访问的 PanSou 后端。
-
-```bash
-git clone https://github.com/Tumblr-code/tg-pansou-bot.git
-cd tg-pansou-bot
-VERSION=$(git rev-parse --short HEAD)     # 用提交号给这次安装起个版本名
-
-sudo useradd --system --home /nonexistent --shell /usr/sbin/nologin tgpansou
-sudo install -d -m 0755 /opt/tg-pansou-bot/releases
-sudo install -d -o tgpansou -g tgpansou -m 0700 /var/lib/tg-pansou-bot
-sudo install -d -o root -g tgpansou -m 0750 /etc/tg-pansou-bot
-
-git archive --format=tar --prefix="$VERSION/" HEAD | sudo tar -x -C /opt/tg-pansou-bot/releases
-sudo python3 -m venv "/opt/tg-pansou-bot/releases/$VERSION/.venv"
-sudo "/opt/tg-pansou-bot/releases/$VERSION/.venv/bin/pip" install -r "/opt/tg-pansou-bot/releases/$VERSION/requirements.txt"
-sudo chown -R root:root "/opt/tg-pansou-bot/releases/$VERSION"
-sudo chmod -R go-w "/opt/tg-pansou-bot/releases/$VERSION"
-
-sudo install -o root -g tgpansou -m 0640 .env.example /etc/tg-pansou-bot/bot.env
-sudoedit /etc/tg-pansou-bot/bot.env
-
-sudo install -m 0644 deploy/systemd/tg-pansou-bot.service /etc/systemd/system/
-sudo ln -s "/opt/tg-pansou-bot/releases/$VERSION" /opt/tg-pansou-bot/current
-sudo systemctl daemon-reload
-sudo systemctl enable --now tg-pansou-bot.service
-```
-
-装好之后的布局：
+## 容器里有什么
 
 ```text
-/opt/tg-pansou-bot/releases/<版本>/   程序和它自己的虚拟环境，root 所有，服务账号不可写
-/opt/tg-pansou-bot/current            指向当前版本的链接
-/etc/tg-pansou-bot/bot.env            配置和 Token，0640 root:tgpansou
-/var/lib/tg-pansou-bot/               用户设置，0700 tgpansou:tgpansou
+tini                     PID 1，转发信号、回收子进程
+└─ python main.py        机器人
+   └─ pansou             PanSou 后端，只监听容器内部的 8888 端口
 ```
 
-在 `/etc/tg-pansou-bot/bot.env` 里至少填好：
+机器人启动时先拉起后端，等它通过健康检查（`/api/health`）再开始收消息。后端意外退出会自动重启，间隔从 1 秒逐步拉长到 30 秒。在线升级后的新版本如果两分钟内连续崩溃三次，会自动退回上一个版本。
 
-```env
-TG_BOT_TOKEN=<你的 Token>
-PANSOU_API_URL=http://localhost:8888
-ADMIN_IDS=<你的数字 ID>
-DATA_DIR=/var/lib/tg-pansou-bot
-APP_VERSION=<版本>
+镜像的根文件系统是只读的，所有可写内容都在挂载到 `/data` 的目录里：
+
+```text
+data/
+├─ user_settings.json        用户的搜索设置
+└─ backend/
+   ├─ state.json             当前后端版本、上一个版本、启动失败过的版本
+   ├─ releases/<提交号>/      在线升级下载的后端（最多保留两个）
+   ├─ cache/                 后端的搜索缓存
+   └─ work/                  后端的工作目录
 ```
 
-`DROP_PENDING_UPDATES` 保持 `false`。需要影视信息时再填一种 TMDB 凭据，两项都留空则不使用 TMDB。配置和 Token 只放在这个文件里，不要放进程序目录。
+镜像自带的后端在 `/opt/pansou/`，版本记录在仓库的 `backend/UPSTREAM` 里。`data/backend/state.json` 不存在或指向的版本不可用时，就运行镜像自带的版本。
 
-仓库里的 `deploy/systemd/pansou-native.service` 和端口保护脚本是给 PanSou 后端用的，安装方法见 [PanSou 的运维教程](https://github.com/Tumblr-code/pansou/blob/main/docs/OPERATIONS.zh-CN.md)。机器人的服务单元对后端是弱依赖：后端没装或暂时停止，机器人仍会启动，只是搜索会失败。
-
-## Docker 方式
-
-`docker-compose.yml` 使用 host 网络、非 root 用户、只读根文件系统和单独的 `/data`。先建好属于 uid/gid 1000、仅它可读写的 `./data`，在 `.env` 里填好配置，然后执行 `docker compose up -d --build`。host 网络的示例面向 Linux，后端地址写宿主机的 loopback。
-
-systemd 和 Docker 两种方式不要用同一个 Token 同时运行。
-
-## 验证
+## 日常操作
 
 ```bash
-systemctl is-active tg-pansou-bot.service
-systemctl show -p MainPID,NRestarts tg-pansou-bot.service
-journalctl -u tg-pansou-bot.service -n 50 --no-pager
+docker compose logs -f --tail=100     # 看日志
+docker compose restart                # 重启
+docker compose down                   # 停止并删除容器（data 目录不受影响）
+docker compose ps                     # 状态；HEALTHY 表示后端健康检查通过
 ```
 
-进程在运行、`NRestarts` 为 0 之后，在 Telegram 里实际走一遍：`/status`、一次搜索、切换分类、翻页。服务显示 active 不代表这些都正常。
+日志是 JSON 格式。机器人默认不记录搜索词和用户 ID，Token 会被屏蔽；后端的日志原样输出。
 
-把日志贴到 issue 之前先检查并隐去敏感内容。
+## 升级
 
-## 故障排查
+**后端**：在 Telegram 里发 `/upgrade`，详见[首页](../README.md#在线升级后端)。不想用在线升级，把 `BACKEND_UPDATE_CHECK_HOURS` 设为 `0`，然后靠更新镜像升级。
 
-- **`Conflict` / `getUpdates`**：同一个 Token 有另一个实例在运行。先找到并停掉它，不要靠清空积压消息来解决。
-- **后端不可用**：检查 PanSou 在本机的健康接口，以及地址、代理和认证配置。不要为了恢复搜索而关掉后端认证或把端口开放到公网。
-- **设置无法写入**：检查 `DATA_DIR`、目录属主（0700）和服务单元里的可写路径。结构异常或损坏的设置文件会被隔离到一旁，先保留它再排查。
-- **TMDB 不可用**：检查凭据和网络出口。影视信息获取失败时，资源搜索照常工作。
-
-不需要真实 Token 的离线检查：`scripts/smoke_test.py` 和 `pytest`。
-
-## 升级与回退
-
-1. 获取新版本，放进一个新的 `releases/<版本>` 目录，建立它自己的虚拟环境并安装依赖，方法和首次安装相同。
-2. 在新目录里运行离线检查。不要用正在使用的 Token 另起一个实例来测试。
-3. 停止机器人，备份 `/var/lib/tg-pansou-bot`。
-4. 切换并启动：
+**机器人和镜像自带的后端**：
 
 ```bash
-sudo ./scripts/activate_release.sh /opt/tg-pansou-bot/releases/<新版本>
+docker compose pull
+docker compose up -d
 ```
 
-脚本会把原来的 `current` 存为 `previous`，原子切换后启动并检查服务；启动失败时自动指回旧版本。启动成功后仍要按「验证」一节实际走一遍。
+自己构建的用 `git pull && docker compose up -d --build`。
 
-回退：
+如果在线升级过的版本比新镜像自带的还新，容器重建后仍然运行在线升级的版本。想改回镜像自带的版本，发 `/upgrade rollback` 直到 `/backend` 显示「镜像自带」，或者停掉容器后删除 `data/backend/state.json`。
 
-```bash
-sudo ./scripts/activate_release.sh /opt/tg-pansou-bot/previous
-```
-
-回退前确认旧版本能读取现有的设置文件，不要用旧数据覆盖较新的用户设置。
+**回滚镜像**：`.env` 同目录下的 `docker-compose.yml` 里把 `image:` 改成某个 `sha-<提交号>` 标签，再 `docker compose up -d`。可用的标签在仓库的 Packages 页面。
 
 ## 备份与恢复
 
-需要备份的内容：`/var/lib/tg-pansou-bot`（用户设置）、`/etc/tg-pansou-bot`（配置和 Token）、服务单元文件，以及 `current` 指向的版本。
+需要备份的只有两样：`.env` 和 `data/user_settings.json`。`data/backend/` 里都是可以重新下载或重新生成的内容。
 
-- 备份前先停止机器人。
-- 备份目录设为 0700、文件 0600，记录校验和，加密后存到另一台机器。
-- 备份里有 Token 和用户设置，不要上传到 GitHub 或任何公开位置。
+```bash
+tar -czf pansou-bot-backup-$(date +%F).tar.gz .env data/user_settings.json
+```
 
-恢复演练在隔离目录里用假 Token 进行，不要启动真实的 polling：恢复后检查 JSON 结构、属主，再跑离线 smoke 和测试。正式恢复时先停掉唯一在运行的实例，恢复匹配的版本和数据后再验证；被隔离的异常文件先留着，不要用旧数据盲目覆盖较新的数据。
+恢复：停掉容器，把这两个文件放回原处，确认 `data` 属于 UID 1000，再启动。
 
-## 发布说明
+## 直接调用搜索 API
 
-目前没有发行版，请按本教程从源码安装。main 分支和 PR 只运行 CI；以后若有正式的 GitHub Release，会附上源码包、`PROVENANCE.json` 和 `SHA256SUMS`，下载后先运行 `sha256sum -c SHA256SUMS` 校验。发布只上传文件，不会替任何人部署或重启服务。
+内置后端就是完整的 PanSou 服务。需要在宿主机上用它时，在 `docker-compose.yml` 里取消 `ports` 那两行的注释：
+
+```yaml
+    ports:
+      - "127.0.0.1:8888:8888"
+```
+
+然后 `curl 'http://127.0.0.1:8888/api/search?kw=测试'`。接口说明见 [PanSou 文档](https://github.com/fish2018/pansou#readme)。后端默认没有认证，只绑定 `127.0.0.1`；确实要对外提供时，在 `.env` 里开启 PanSou 自己的 `AUTH_ENABLED` 等认证配置，并放在 HTTPS 反向代理后面。
+
+## 后端配置
+
+`.env` 里的变量会原样传给后端，只有 `TG_BOT_TOKEN`、`TMDB_READ_ACCESS_TOKEN`、`TMDB_API_KEY`、`PANSOU_API_TOKEN` 例外。`PORT` 和 `CACHE_PATH` 由机器人固定设置。
+
+`CHANNELS`、`ENABLED_PLUGINS` 等留空时，使用当前后端版本附带的默认值（来自上游 Dockerfile，保存在每个版本的 `defaults.env` 里）。这样升级后端时，上游新增或移除的插件会自动跟上；自己填了就以你的为准。
+
+## 内置后端相关的全部设置
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `PANSOU_BACKEND` | 镜像里为 `builtin` | `builtin` 使用内置后端；`external` 连接 `PANSOU_API_URL` |
+| `BACKEND_PORT` | `8888` | 内置后端在容器内监听的端口 |
+| `BACKEND_START_TIMEOUT` | `60` | 等待后端通过健康检查的秒数 |
+| `BACKEND_UPDATE_REPO` | `Tumblr-code/pansou-bot` | 从哪个 GitHub 仓库的 Releases 下载新后端 |
+| `BACKEND_UPDATE_CHECK_HOURS` | `24` | 自动检查间隔，`0` 关闭（`/upgrade` 仍可手动用） |
+| `BACKEND_AUTO_UPGRADE` | `false` | 发现新版本时直接升级 |
+| `BACKEND_BUNDLED_DIR` | `/opt/pansou` | 镜像自带后端的位置，一般不用改 |
+
+自己 fork 了本仓库、想用自己编译的后端，把 `BACKEND_UPDATE_REPO` 改成你的仓库即可：fork 里的 Backend release 工作流会照样每天发布。
+
+## 不用 Docker
+
+### 只运行机器人，连接已有的 PanSou
+
+需要 Python 3.11 / 3.12。
+
+```bash
+git clone https://github.com/Tumblr-code/pansou-bot.git
+cd pansou-bot
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cp .env.example .env     # 填 TG_BOT_TOKEN、ADMIN_IDS，并设置下面两行
+```
+
+```env
+PANSOU_BACKEND=external
+PANSOU_API_URL=http://localhost:8888
+```
+
+然后 `.venv/bin/python main.py`。
+
+### 机器人和后端一起运行
+
+额外需要 Go 1.25 和 git。先编译后端，再让机器人使用它：
+
+```bash
+sh backend/build.sh --arch amd64 --out "$PWD/pansou-backend"     # ARM 机器用 arm64
+```
+
+```env
+PANSOU_BACKEND=builtin
+BACKEND_BUNDLED_DIR=/完整路径/pansou-bot/pansou-backend
+DATA_DIR=./data
+```
+
+在线升级同样可用。要开机自启，可以写一个 systemd 服务：`WorkingDirectory` 指向仓库目录，`ExecStart` 为 `.venv/bin/python main.py`，用一个专用的普通账号运行，并给它 `DATA_DIR` 的写权限。
+
+## 排查
+
+| 现象 | 看哪里 |
+|---|---|
+| `backend_missing` | 镜像里没有后端：自己构建时 Go 编译失败了，看构建输出 |
+| `backend_port_in_use` | 8888 端口被占用。容器里不会发生；不用 Docker 时换 `BACKEND_PORT` |
+| `backend_start_failed` | 后端没能在 `BACKEND_START_TIMEOUT` 内通过健康检查，看它前面的后端日志 |
+| `backend_crash_loop_fallback` | 在线升级的版本反复崩溃，已经退回上一个版本 |
+| `backend_update_check_failed` | 访问不了 GitHub，检查网络或 `HTTPS_PROXY` |
+| 容器 unhealthy | 后端不健康。`/backend` 会显示原因，日志里有对应的 `backend_` 事件 |
+
+## 发布是怎么来的
+
+| 工作流 | 触发 | 产出 |
+|---|---|---|
+| CI | PR 和 main | Python 测试；构建镜像并在镜像里实际启动一次后端 |
+| Image | main、`v*` 标签 | `ghcr.io/tumblr-code/pansou-bot` 镜像：`latest`、`sha-<提交号>`、版本号 |
+| Backend release | 每天、手动 | `backend-<日期>-<提交号>` 发布：两个架构的压缩包、`SHA256SUMS`、构建来源证明 |
+
+后端发布永远从上游 [fish2018/pansou](https://github.com/fish2018/pansou) 的源码编译，本仓库不修改后端代码。手动发布某个上游提交：在 Actions 里运行 Backend release，填入完整提交号。把镜像自带的版本更新到上游最新：`scripts/bump_backend.sh`，然后提交 PR。

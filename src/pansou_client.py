@@ -99,7 +99,7 @@ class PansouClient:
         if hasattr(self, '_initialized') and self._initialized:
             return
         self._initialized = True
-        self.base_url = settings.pansou_api_url.rstrip('/')
+        self.base_url = settings.effective_pansou_api_url()
         self.timeout = settings.search_timeout
         self.headers = {}
         self.result_cache_ttl = 120
@@ -124,7 +124,8 @@ class PansouClient:
             async with self._lock:
                 if self._client is None or self._client.is_closed:
                     proxy = None
-                    proxies = settings.get_proxies()
+                    # 本机后端不走代理：代理通常连不到容器内的 127.0.0.1
+                    proxies = None if settings.pansou_api_is_local() else settings.get_proxies()
                     if proxies:
                         proxy = proxies.get('https://') or proxies.get('http://')
                     

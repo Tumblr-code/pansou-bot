@@ -1,0 +1,125 @@
+name: Backend release
+
+# 每天检查上游 fish2018/pansou；有新提交就编译后端并发布为 backend-<日期>-<提交号>，
+# 机器人的 /upgrade 命令从这里下载。也可以手动运行并指定提交。
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: "上游完整提交号（留空 = main 最新）"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-release
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve upstream revision
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      revision: ${{ steps.rev.outputs.revision }}
+      tag: ${{ steps.rev.outputs.tag }}
+      committed_at: ${{ steps.rev.outputs.committed_at }}
+      exists: ${{ steps.rev.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: rev
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_REVISION: ${{ inputs.revision }}
+        run: |
+          . backend/UPSTREAM
+          revision=${INPUT_REVISION:-$(git ls-remote "$PANSOU_REPOSITORY" refs/heads/main | cut -f1)}
+          echo "$revision" | grep -Eq '^[0-9a-f]{40}$' || { echo "bad revision: $revision"; exit 1; }
+          git init -q up && git -C up fetch -q --depth 1 "$PANSOU_REPOSITORY" "$revision"
+          committed_at=$(git -C up log -1 --format=%cI FETCH_HEAD)
+          day=$(TZ=UTC date -d "$committed_at" +%Y%m%d)
+          tag="backend-${day}-${revision:0:12}"
+          exists=false
+          gh release view "$tag" >/dev/null 2>&1 && exists=true
+          {
+            echo "revision=$revision"
+            echo "tag=$tag"
+            echo "committed_at=$committed_at"
+            echo "exists=$exists"
+          } >> "$GITHUB_OUTPUT"
+          echo "upstream $revision ($committed_at) -> $tag, already released: $exists"
+
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: resolve
+    if: needs.resolve.outputs.exists != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: false
+      - name: Build
+        run: sh backend/build.sh --arch ${{ matrix.arch }} --revision ${{ needs.resolve.outputs.revision }} --out "$PWD/out"
+      - name: Smoke test
+        if: matrix.arch == 'amd64'
+        run: |
+          mkdir -p cache
+          (cd out && PORT=18888 CACHE_PATH="$PWD/../cache" ./pansou > ../backend.log 2>&1 &)
+          for i in $(seq 60); do
+            curl -fsS http://127.0.0.1:18888/api/health | grep -q '"status":"ok"' && exit 0
+            sleep 1
+          done
+          cat backend.log
+          exit 1
+      - name: Package
+        run: tar -C out -czf pansou-linux-${{ matrix.arch }}.tar.gz pansou defaults.env VERSION.json LICENSE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-${{ matrix.arch }}
+          path: pansou-linux-${{ matrix.arch }}.tar.gz
+
+  publish:
+    name: Publish release
+    needs: [resolve, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: backend-*
+          merge-multiple: true
+      - run: sha256sum pansou-linux-*.tar.gz > SHA256SUMS && cat SHA256SUMS
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: pansou-linux-*.tar.gz
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          REVISION: ${{ needs.resolve.outputs.revision }}
+          COMMITTED_AT: ${{ needs.resolve.outputs.committed_at }}
+        run: |
+          cat > notes.md <<NOTES
+          PanSou 后端，编译自上游 [fish2018/pansou@${REVISION:0:12}](https://github.com/fish2018/pansou/commit/${REVISION})（提交于 ${COMMITTED_AT}）。
+
+          机器人管理员发送 \`/upgrade\` 即可在线升级到这个版本。压缩包的 SHA256 见 \`SHA256SUMS\`，构建来源可以用 \`gh attestation verify <文件> -R ${GITHUB_REPOSITORY}\` 验证。
+
+          Built from upstream fish2018/pansou at ${REVISION}. Send \`/upgrade\` to the bot to install it.
+          NOTES
+          gh release create "$TAG" pansou-linux-*.tar.gz SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --title "Backend ${TAG#backend-}" --notes-file notes.md --latest=false
