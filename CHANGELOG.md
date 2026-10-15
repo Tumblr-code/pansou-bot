@@ -28,6 +28,7 @@
 
 ### Removed
 
+- 不再支持连接单独部署的 PanSou：`PANSOU_API_URL`、`PANSOU_API_TOKEN` 已移除，后端始终由机器人在本机启动
 - systemd 单元、端口守卫脚本、源码发行包脚本和 `docs/SOURCE_MANIFEST.json`；独立部署后端的旧方式见 3.0.0 之前的版本
 
 ## 2026-10 生产加固（未单独发版）

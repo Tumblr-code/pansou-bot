@@ -5,7 +5,7 @@
 A Telegram bot that searches cloud-drive share links, **with the search backend built in**. One Docker container runs both the bot and the [PanSou](https://github.com/fish2018/pansou) search service, and the backend can be upgraded online with a single Telegram command.
 
 - Search in private chats and groups; results are grouped by drive type, paginated and refreshable
-- Built-in PanSou backend: the bot starts it, health-checks it and restarts it after a crash
+- No separate backend to deploy: the bot starts PanSou itself, health-checks it and restarts it after a crash
 - Online upgrades: a new backend is compiled from upstream source every day; admins send `/upgrade` to install it, with automatic recovery on failure and one-step rollback
 - Optional TMDB integration adds posters and summaries to film and TV searches
 - Magnet links go only to the person who searched; very long links are sent as a text file
@@ -100,8 +100,6 @@ Everything goes in `.env`; see [.env.example](.env.example) for the full list wi
 
 PanSou's own settings (cache, concurrency, timeouts and so on, see the [upstream docs](https://github.com/fish2018/pansou#readme)) can go in the same `.env` and are passed to the backend. The bot token and TMDB credentials are never passed to the backend process.
 
-To use an existing, separately deployed PanSou instead, set `PANSOU_BACKEND=external` and `PANSOU_API_URL`; the built-in backend then stays off.
-
 ## Troubleshooting
 
 - **`Conflict` / `getUpdates` at start-up**: another instance is using the same token. Stop it first.
@@ -111,13 +109,13 @@ To use an existing, separately deployed PanSou instead, set `PANSOU_BACKEND=exte
 - **Admin commands do nothing**: `ADMIN_IDS` is empty or is not your own numeric ID.
 - **No film or TV details**: TMDB credentials are missing or TMDB is unreachable. Ordinary searches still work.
 
-More (installing without Docker, backup and restore, calling the search API directly) is in the [operations guide](docs/OPERATIONS.en.md).
+More (backup and restore, running without Docker) is in the [operations guide](docs/OPERATIONS.en.md).
 
 ## Security notes
 
 - The token is the bot's password. Never commit it, bake it into an image, or paste it into issues or chats. If it leaks, `/revoke` it in BotFather at once.
 - Make `.env` readable only by you: `chmod 600 .env`.
-- The built-in backend is only reachable inside the container by default. If you really need the search API on the host, publish it on `127.0.0.1` only, never to the internet (the backend has no authentication by default).
+- The backend is only reachable inside the container; no port needs to be, or should be, published.
 - Online upgrades download only from the repository in `BACKEND_UPDATE_REPO` and verify SHA256; each release also carries a GitHub build provenance attestation you can check with `gh attestation verify`.
 
 ## Development

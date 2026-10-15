@@ -1,7 +1,6 @@
 """Bot configuration."""
 from pathlib import Path
-from typing import List, Literal, Optional
-from urllib.parse import urlparse
+from typing import List, Optional
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -20,14 +19,7 @@ class Settings(BaseSettings):
     # Telegram Bot 配置
     tg_bot_token: str = Field(..., description="Telegram Bot Token")
     
-    # Pansou API 配置
-    pansou_api_url: str = Field(default="http://localhost:8888", description="Pansou API 地址")
-    pansou_api_token: Optional[str] = Field(default=None, description="Pansou API 认证 Token")
-
-    # 内置后端：builtin 由机器人启动并看护 PanSou 进程；external 连接 PANSOU_API_URL
-    pansou_backend: Literal["builtin", "external"] = Field(
-        default="external", description="后端模式"
-    )
+    # 内置 PanSou 后端：由机器人启动并看护
     backend_port: int = Field(default=8888, ge=1, le=65535, description="内置后端端口")
     backend_bundled_dir: Path = Field(
         default=Path("/opt/pansou"), description="镜像自带的后端目录"
@@ -106,19 +98,8 @@ class Settings(BaseSettings):
             raise ValueError("DEFAULT_RESULT_LIMIT cannot exceed MAX_RESULT_LIMIT")
         return self
     
-    @property
-    def builtin_backend(self) -> bool:
-        return self.pansou_backend == "builtin"
-
-    def effective_pansou_api_url(self) -> str:
-        """内置模式下始终连接本机后端，忽略 PANSOU_API_URL。"""
-        if self.builtin_backend:
-            return f"http://127.0.0.1:{self.backend_port}"
-        return self.pansou_api_url.rstrip("/")
-
-    def pansou_api_is_local(self) -> bool:
-        host = (urlparse(self.effective_pansou_api_url()).hostname or "").lower()
-        return host in {"localhost", "127.0.0.1", "::1"}
+    def backend_url(self) -> str:
+        return f"http://127.0.0.1:{self.backend_port}"
 
     def get_proxies(self) -> Optional[dict]:
         """获取代理配置"""

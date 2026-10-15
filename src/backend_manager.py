@@ -19,7 +19,7 @@ logger = get_logger()
 
 # 只属于机器人的密钥，不传给后端进程
 BOT_ONLY_ENV = frozenset(
-    {"TG_BOT_TOKEN", "TMDB_READ_ACCESS_TOKEN", "TMDB_API_KEY", "PANSOU_API_TOKEN"}
+    {"TG_BOT_TOKEN", "TMDB_READ_ACCESS_TOKEN", "TMDB_API_KEY"}
 )
 RESTART_BACKOFF = (1, 2, 5, 10, 30)
 # 进程运行超过这个时间再退出，视为偶发故障，重启间隔从头算

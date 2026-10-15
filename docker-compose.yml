@@ -15,6 +15,3 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    # 想在宿主机上直接调用 PanSou 搜索 API 时取消注释（只绑定本机地址）
-    # ports:
-    #   - "127.0.0.1:8888:8888"

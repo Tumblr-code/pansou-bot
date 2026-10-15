@@ -32,13 +32,10 @@ ARG VERSION=dev
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     DATA_DIR=/data \
-    PANSOU_BACKEND=builtin \
     BACKEND_BUNDLED_DIR=/opt/pansou \
     APP_VERSION=${VERSION}
 
 VOLUME ["/data"]
-# 只有需要从容器外直接调用搜索 API 时才映射这个端口
-EXPOSE 8888
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
     CMD ["python", "/app/src/healthcheck.py"]

@@ -66,29 +66,17 @@ tar -czf pansou-bot-backup-$(date +%F).tar.gz .env data/user_settings.json
 
 恢复：停掉容器，把这两个文件放回原处，确认 `data` 属于 UID 1000，再启动。
 
-## 直接调用搜索 API
-
-内置后端就是完整的 PanSou 服务。需要在宿主机上用它时，在 `docker-compose.yml` 里取消 `ports` 那两行的注释：
-
-```yaml
-    ports:
-      - "127.0.0.1:8888:8888"
-```
-
-然后 `curl 'http://127.0.0.1:8888/api/search?kw=测试'`。接口说明见 [PanSou 文档](https://github.com/fish2018/pansou#readme)。后端默认没有认证，只绑定 `127.0.0.1`；确实要对外提供时，在 `.env` 里开启 PanSou 自己的 `AUTH_ENABLED` 等认证配置，并放在 HTTPS 反向代理后面。
-
 ## 后端配置
 
-`.env` 里的变量会原样传给后端，只有 `TG_BOT_TOKEN`、`TMDB_READ_ACCESS_TOKEN`、`TMDB_API_KEY`、`PANSOU_API_TOKEN` 例外。`PORT` 和 `CACHE_PATH` 由机器人固定设置。
+`.env` 里的变量会原样传给后端，只有 `TG_BOT_TOKEN`、`TMDB_READ_ACCESS_TOKEN`、`TMDB_API_KEY` 例外。`PORT` 和 `CACHE_PATH` 由机器人固定设置。
 
 `CHANNELS`、`ENABLED_PLUGINS` 等留空时，使用当前后端版本附带的默认值（来自上游 Dockerfile，保存在每个版本的 `defaults.env` 里）。这样升级后端时，上游新增或移除的插件会自动跟上；自己填了就以你的为准。
 
-## 内置后端相关的全部设置
+## 后端相关的全部设置
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `PANSOU_BACKEND` | 镜像里为 `builtin` | `builtin` 使用内置后端；`external` 连接 `PANSOU_API_URL` |
-| `BACKEND_PORT` | `8888` | 内置后端在容器内监听的端口 |
+| `BACKEND_PORT` | `8888` | 后端在容器内监听的端口，只有机器人访问 |
 | `BACKEND_START_TIMEOUT` | `60` | 等待后端通过健康检查的秒数 |
 | `BACKEND_UPDATE_REPO` | `Tumblr-code/pansou-bot` | 从哪个 GitHub 仓库的 Releases 下载新后端 |
 | `BACKEND_UPDATE_CHECK_HOURS` | `24` | 自动检查间隔，`0` 关闭（`/upgrade` 仍可手动用） |
@@ -99,47 +87,30 @@ tar -czf pansou-bot-backup-$(date +%F).tar.gz .env data/user_settings.json
 
 ## 不用 Docker
 
-### 只运行机器人，连接已有的 PanSou
-
-需要 Python 3.11 / 3.12。
+需要 Python 3.11 / 3.12、Go 1.25 和 git。先从上游源码编译后端，再运行机器人，机器人会自己启动这个后端：
 
 ```bash
 git clone https://github.com/Tumblr-code/pansou-bot.git
 cd pansou-bot
+sh backend/build.sh --arch amd64 --out "$PWD/pansou-backend"     # ARM 机器用 arm64
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-cp .env.example .env     # 填 TG_BOT_TOKEN、ADMIN_IDS，并设置下面两行
+cp .env.example .env     # 填 TG_BOT_TOKEN、ADMIN_IDS，并加上下面两行
 ```
 
 ```env
-PANSOU_BACKEND=external
-PANSOU_API_URL=http://localhost:8888
-```
-
-然后 `.venv/bin/python main.py`。
-
-### 机器人和后端一起运行
-
-额外需要 Go 1.25 和 git。先编译后端，再让机器人使用它：
-
-```bash
-sh backend/build.sh --arch amd64 --out "$PWD/pansou-backend"     # ARM 机器用 arm64
-```
-
-```env
-PANSOU_BACKEND=builtin
 BACKEND_BUNDLED_DIR=/完整路径/pansou-bot/pansou-backend
 DATA_DIR=./data
 ```
 
-在线升级同样可用。要开机自启，可以写一个 systemd 服务：`WorkingDirectory` 指向仓库目录，`ExecStart` 为 `.venv/bin/python main.py`，用一个专用的普通账号运行，并给它 `DATA_DIR` 的写权限。
+然后 `.venv/bin/python main.py`。在线升级同样可用。要开机自启，可以写一个 systemd 服务：`WorkingDirectory` 指向仓库目录，`ExecStart` 为 `.venv/bin/python main.py`，用一个专用的普通账号运行，并给它 `DATA_DIR` 的写权限。
 
 ## 排查
 
 | 现象 | 看哪里 |
 |---|---|
 | `backend_missing` | 镜像里没有后端：自己构建时 Go 编译失败了，看构建输出 |
-| `backend_port_in_use` | 8888 端口被占用。容器里不会发生；不用 Docker 时换 `BACKEND_PORT` |
+| `backend_port_in_use` | 8888 端口被占用。容器里不会发生；不用 Docker 时换一个 `BACKEND_PORT` |
 | `backend_start_failed` | 后端没能在 `BACKEND_START_TIMEOUT` 内通过健康检查，看它前面的后端日志 |
 | `backend_crash_loop_fallback` | 在线升级的版本反复崩溃，已经退回上一个版本 |
 | `backend_update_check_failed` | 访问不了 GitHub，检查网络或 `HTTPS_PROXY` |

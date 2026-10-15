@@ -66,29 +66,17 @@ tar -czf pansou-bot-backup-$(date +%F).tar.gz .env data/user_settings.json
 
 To restore, stop the container, put both files back, make sure `data` belongs to UID 1000, and start again.
 
-## Calling the search API directly
-
-The built-in backend is a complete PanSou service. To use it from the host, uncomment the two `ports` lines in `docker-compose.yml`:
-
-```yaml
-    ports:
-      - "127.0.0.1:8888:8888"
-```
-
-Then `curl 'http://127.0.0.1:8888/api/search?kw=test'`. The API is documented in the [PanSou docs](https://github.com/fish2018/pansou#readme). The backend has no authentication by default, so bind it to `127.0.0.1` only; if you really must serve it to others, enable PanSou's own `AUTH_ENABLED` settings in `.env` and put it behind an HTTPS reverse proxy.
-
 ## Backend configuration
 
-Variables in `.env` are passed to the backend as they are, except `TG_BOT_TOKEN`, `TMDB_READ_ACCESS_TOKEN`, `TMDB_API_KEY` and `PANSOU_API_TOKEN`. The bot sets `PORT` and `CACHE_PATH` itself.
+Variables in `.env` are passed to the backend as they are, except `TG_BOT_TOKEN`, `TMDB_READ_ACCESS_TOKEN` and `TMDB_API_KEY`. The bot sets `PORT` and `CACHE_PATH` itself.
 
 When `CHANNELS`, `ENABLED_PLUGINS` and the like are empty, the defaults shipped with the running backend build apply (taken from upstream's Dockerfile and stored in each build's `defaults.env`). That way plugins added or removed upstream follow along when the backend is upgraded; values you set yourself always win.
 
-## All built-in backend settings
+## All backend settings
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `PANSOU_BACKEND` | `builtin` in the image | `builtin` runs the built-in backend; `external` uses `PANSOU_API_URL` |
-| `BACKEND_PORT` | `8888` | Port the built-in backend listens on inside the container |
+| `BACKEND_PORT` | `8888` | Port the backend listens on inside the container, used only by the bot |
 | `BACKEND_START_TIMEOUT` | `60` | Seconds to wait for the backend health check |
 | `BACKEND_UPDATE_REPO` | `Tumblr-code/pansou-bot` | GitHub repository whose Releases provide new backend builds |
 | `BACKEND_UPDATE_CHECK_HOURS` | `24` | Automatic check interval; `0` turns it off (`/upgrade` still works) |
@@ -99,47 +87,30 @@ If you fork this repository and want backends built by your fork, point `BACKEND
 
 ## Without Docker
 
-### Bot only, using an existing PanSou
-
-Needs Python 3.11 / 3.12.
+Needs Python 3.11 / 3.12, Go 1.25 and git. Compile the backend from upstream source first, then run the bot; the bot starts that backend itself:
 
 ```bash
 git clone https://github.com/Tumblr-code/pansou-bot.git
 cd pansou-bot
+sh backend/build.sh --arch amd64 --out "$PWD/pansou-backend"     # arm64 on ARM machines
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-cp .env.example .env     # fill in TG_BOT_TOKEN and ADMIN_IDS, and set the two lines below
+cp .env.example .env     # fill in TG_BOT_TOKEN and ADMIN_IDS, and add the two lines below
 ```
 
 ```env
-PANSOU_BACKEND=external
-PANSOU_API_URL=http://localhost:8888
-```
-
-Then run `.venv/bin/python main.py`.
-
-### Bot and backend together
-
-Also needs Go 1.25 and git. Compile the backend first, then point the bot at it:
-
-```bash
-sh backend/build.sh --arch amd64 --out "$PWD/pansou-backend"     # arm64 on ARM machines
-```
-
-```env
-PANSOU_BACKEND=builtin
 BACKEND_BUNDLED_DIR=/full/path/to/pansou-bot/pansou-backend
 DATA_DIR=./data
 ```
 
-Online upgrades work here too. To start at boot, write a systemd service with `WorkingDirectory` set to the checkout and `ExecStart` set to `.venv/bin/python main.py`, running as a dedicated unprivileged account that can write to `DATA_DIR`.
+Then run `.venv/bin/python main.py`. Online upgrades work here too. To start at boot, write a systemd service with `WorkingDirectory` set to the checkout and `ExecStart` set to `.venv/bin/python main.py`, running as a dedicated unprivileged account that can write to `DATA_DIR`.
 
 ## Troubleshooting
 
 | Symptom | Where to look |
 |---|---|
 | `backend_missing` | The image has no backend: when building yourself, the Go build failed; check the build output |
-| `backend_port_in_use` | Port 8888 is taken. Cannot happen in the container; without Docker, change `BACKEND_PORT` |
+| `backend_port_in_use` | Port 8888 is taken. Cannot happen in the container; without Docker, pick another `BACKEND_PORT` |
 | `backend_start_failed` | The backend did not pass its health check within `BACKEND_START_TIMEOUT`; read the backend log just before it |
 | `backend_crash_loop_fallback` | An upgraded build kept crashing and the bot went back to the previous one |
 | `backend_update_check_failed` | GitHub is unreachable; check the network or `HTTPS_PROXY` |

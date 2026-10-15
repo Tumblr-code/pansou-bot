@@ -43,10 +43,8 @@ def get_updater() -> Optional[BackendUpdater]:
 # ============ 生命周期 ============
 
 async def start_backend(application: Application) -> None:
-    """内置模式下启动后端，并按配置开启定时检查更新。"""
+    """启动后端，并按配置开启定时检查更新。"""
     global _manager, _updater, _check_task
-    if not settings.builtin_backend:
-        return
     store = BackendStore(settings.data_dir, settings.backend_bundled_dir)
     _manager = BackendManager(
         store, port=settings.backend_port, start_timeout=settings.backend_start_timeout
@@ -157,18 +155,12 @@ def _format_uptime(seconds: float) -> str:
 
 
 async def backend_status_text() -> str:
-    if not settings.builtin_backend:
-        return (
-            "🔌 <b>后端：外部服务</b>\n\n"
-            f"地址：<code>{html.escape(settings.effective_pansou_api_url())}</code>\n"
-            "外部后端请按它自己的方式升级。"
-        )
     manager = _manager
     if manager is None:
-        return "⚠️ 内置后端还没有初始化"
+        return "⚠️ 后端还没有初始化"
     build = manager.build
     healthy = await manager.healthy() if manager.running else False
-    lines = ["🧩 <b>后端：内置</b>", ""]
+    lines = ["🧩 <b>搜索后端</b>", ""]
     lines.append(f"状态：{'✅ 正常' if healthy else '❌ 不可用'}")
     if build is not None:
         lines.append(f"版本：<code>{html.escape(build.label())}</code>")
@@ -194,8 +186,8 @@ async def upgrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not settings.is_admin(update.effective_user.id):
         await update.message.reply_text("⛔️ 该命令仅限管理员使用")
         return
-    if not settings.builtin_backend or _updater is None:
-        await update.message.reply_text("当前使用外部后端，在线升级只对内置后端有效。")
+    if _updater is None:
+        await update.message.reply_text("后端还没有初始化，请稍后再试。")
         return
 
     if context.args and context.args[0].lower() == "rollback":

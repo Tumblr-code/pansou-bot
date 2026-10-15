@@ -644,7 +644,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 🤖 Bot: 运行中
 🏷️ 版本: <code>{html.escape(settings.app_version)}</code>
-🔍 Pansou API: 正常
+🔍 搜索后端: 正常
 🔌 启用插件: {plugin_count}
 📡 默认频道: {channels_count}
 
@@ -663,7 +663,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 🤖 Bot: 运行中
 🏷️ 版本: <code>{html.escape(settings.app_version)}</code>
-🔍 Pansou API: 无法连接
+🔍 搜索后端: 无法连接
 
 请稍后重试..."""
     
@@ -695,7 +695,7 @@ async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 🧹 搜索缓存已清理: {cleared_search_cache} 条
 🚦 限流记录已清理: {cleared_rate_limiters} 个用户
 ⚙️ 设置缓存已清理: {cleared_settings_cache} 个用户
-🔍 Pansou API: {"正常" if is_healthy else "无法连接"}"""
+🔍 搜索后端: {"正常" if is_healthy else "无法连接"}"""
 
     status_text = add_auto_delete_notice(status_text, ParseMode.HTML)
     await _safe_edit_message(message.edit_text, status_text, parse_mode=ParseMode.HTML)
