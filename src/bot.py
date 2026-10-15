@@ -11,15 +11,14 @@ from telegram.ext import ContextTypes
 
 from application_factory import BotHandlerSet
 from application_factory import create_application as build_application
-from backend_commands import (
-    backend_callback,
-    backend_command,
-    backend_status_text,
-    start_backend,
-    stop_backend,
+from config import settings
+from engine_commands import (
+    engine_callback,
+    engine_status_text,
+    start_engine,
+    stop_engine,
     upgrade_command,
 )
-from config import settings
 from keyboards import (
     create_all_results_keyboard,
     create_pagination_keyboard,
@@ -102,8 +101,7 @@ BOT_COMMANDS = [
     BotCommand("reset", "重置搜索设置"),
     BotCommand("status", "检查服务状态"),
     BotCommand("refresh", "刷新运行时缓存"),
-    BotCommand("backend", "查看后端状态"),
-    BotCommand("upgrade", "在线升级后端"),
+    BotCommand("upgrade", "在线升级搜索引擎"),
 ]
 
 def _is_cache_owner(cache_key, chat_id, user_id, message_id=None):
@@ -290,8 +288,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 • <code>/channels</code> - 查看启用频道
 • <code>/reset</code> - 重置搜索设置
 • <code>/refresh</code> - 刷新缓存和连接状态
-• <code>/backend</code> - 查看后端版本和状态
-• <code>/upgrade</code> - 在线升级后端（<code>/upgrade rollback</code> 回滚）
+• <code>/upgrade</code> - 在线升级搜索引擎（<code>/upgrade rollback</code> 回滚）
 
 <b>📁 支持的网盘</b>
 百度、阿里、夸克、光鸭、天翼、UC、115、PikPak、迅雷、123、微云、蓝奏、坚果云、磁力、电驴"""
@@ -644,7 +641,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 🤖 Bot: 运行中
 🏷️ 版本: <code>{html.escape(settings.app_version)}</code>
-🔍 搜索后端: 正常
+🔍 搜索引擎: 正常
 🔌 启用插件: {plugin_count}
 📡 默认频道: {channels_count}
 
@@ -663,11 +660,11 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 🤖 Bot: 运行中
 🏷️ 版本: <code>{html.escape(settings.app_version)}</code>
-🔍 搜索后端: 无法连接
+🔍 搜索引擎: 无法连接
 
 请稍后重试..."""
     
-    status_text += "\n\n" + await backend_status_text()
+    status_text += "\n\n" + await engine_status_text()
 
     # 添加自动删除提示
     status_text = add_auto_delete_notice(status_text, ParseMode.HTML)
@@ -695,7 +692,7 @@ async def refresh_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 🧹 搜索缓存已清理: {cleared_search_cache} 条
 🚦 限流记录已清理: {cleared_rate_limiters} 个用户
 ⚙️ 设置缓存已清理: {cleared_settings_cache} 个用户
-🔍 搜索后端: {"正常" if is_healthy else "无法连接"}"""
+🔍 搜索引擎: {"正常" if is_healthy else "无法连接"}"""
 
     status_text = add_auto_delete_notice(status_text, ParseMode.HTML)
     await _safe_edit_message(message.edit_text, status_text, parse_mode=ParseMode.HTML)
@@ -1040,8 +1037,8 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 # ============ 应用构建 ============
 
 async def _post_init(application) -> None:
-    """启动内置后端，再同步 Telegram 命令菜单。"""
-    await start_backend(application)
+    """启动搜索引擎，再同步 Telegram 命令菜单。"""
+    await start_engine(application)
     try:
         await application.bot.set_my_commands(BOT_COMMANDS)
         user = await application.bot.get_me()
@@ -1058,7 +1055,7 @@ async def _post_shutdown(application) -> None:
     """Release shared clients and background tasks after polling stops."""
     await shutdown_runtime_state()
     await pansou_client.close()
-    await stop_backend()
+    await stop_engine()
     await tmdb_client.close()
     logger.info("bot_stopped", app_version=settings.app_version)
 
@@ -1078,9 +1075,8 @@ def create_application():
             reset=reset_command,
             status=status_command,
             refresh=refresh_command,
-            backend=backend_command,
             upgrade=upgrade_command,
-            backend_callback=backend_callback,
+            engine_callback=engine_callback,
             search=search_command,
             callback=handle_callback,
             private_message=handle_private_message,

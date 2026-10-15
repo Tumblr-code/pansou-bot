@@ -14,18 +14,18 @@ from pathlib import Path
 import httpx
 import pytest
 
-import backend_manager
-from backend_manager import BackendManager, build_backend_env
-from backend_store import BUNDLED, BackendStore, load_build
-from backend_updater import (
-    BackendUpdater,
+import engine_manager
+from engine_manager import EngineManager, build_engine_env
+from engine_store import BUNDLED, EngineStore, load_build
+from engine_updater import (
+    EngineUpdater,
     UpgradeError,
     extract_release,
     parse_sums,
     pick_release,
 )
 
-FAKE_BACKEND = f"""#!{sys.executable}
+FAKE_ENGINE = f"""#!{sys.executable}
 import json, os, sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -57,7 +57,7 @@ def free_port() -> int:
 def write_build(directory: Path, revision: str, *, fail: bool = False, defaults: str = "") -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     binary = directory / "pansou"
-    binary.write_text(FAKE_BACKEND.replace("{fail}", str(fail)).replace("{rev}", revision))
+    binary.write_text(FAKE_ENGINE.replace("{fail}", str(fail)).replace("{rev}", revision))
     binary.chmod(0o755)
     (directory / "VERSION.json").write_text(
         json.dumps({"revision": revision, "committed_at": "2026-10-12T14:00:52+08:00"})
@@ -66,9 +66,9 @@ def write_build(directory: Path, revision: str, *, fail: bool = False, defaults:
     return directory
 
 
-def make_manager(tmp_path: Path, **kwargs) -> BackendManager:
-    store = BackendStore(tmp_path / "data", tmp_path / "bundled")
-    return BackendManager(
+def make_manager(tmp_path: Path, **kwargs) -> EngineManager:
+    store = EngineStore(tmp_path / "data", tmp_path / "bundled")
+    return EngineManager(
         store, port=free_port(), start_timeout=10, base_env={"PATH": os.environ["PATH"]},
         env_file=None, **kwargs,
     )
@@ -80,10 +80,10 @@ REV_B = "b" * 40
 
 # ---------- 环境变量 ----------
 
-def test_backend_env_drops_bot_secrets_and_fills_defaults(tmp_path: Path) -> None:
+def test_engine_env_drops_bot_secrets_and_fills_defaults(tmp_path: Path) -> None:
     build = load_build(BUNDLED, write_build(tmp_path / "b", REV_A, defaults="CHANNELS=x,y\nTZ=UTC\n"))
     assert build is not None
-    env = build_backend_env(
+    env = build_engine_env(
         build,
         port=9999,
         cache_dir=tmp_path / "cache",
@@ -141,8 +141,8 @@ async def test_failed_switch_restores_running_version(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_crashed_backend_is_restarted(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(backend_manager, "RESTART_BACKOFF", (0.1,))
+async def test_crashed_engine_is_restarted(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(engine_manager, "RESTART_BACKOFF", (0.1,))
     write_build(tmp_path / "bundled", REV_A)
     manager = make_manager(tmp_path)
     try:
@@ -178,9 +178,9 @@ def _release_json(tag: str, arch: str = "amd64", **extra) -> dict:
 def test_pick_release_skips_unrelated_and_incomplete_releases() -> None:
     releases = [
         {"tag_name": "v2.0.0", "assets": []},
-        _release_json("backend-20261013-" + "c" * 12, prerelease=True),
-        _release_json("backend-20261012-" + "b" * 12, arch="arm64"),
-        _release_json("backend-20261011-" + "a" * 12),
+        _release_json("engine-20261013-" + "c" * 12, prerelease=True),
+        _release_json("engine-20261012-" + "b" * 12, arch="arm64"),
+        _release_json("engine-20261011-" + "a" * 12),
     ]
     picked = pick_release(releases, "amd64")
     assert picked.revision == "a" * 12 and picked.date == "2026-10-11"
@@ -189,8 +189,8 @@ def test_pick_release_skips_unrelated_and_incomplete_releases() -> None:
 
 def test_pick_release_prefers_newest_upstream_date_over_publish_order() -> None:
     releases = [
-        _release_json("backend-20261001-" + "d" * 12, published_at="2026-10-14T00:00:00Z"),
-        _release_json("backend-20261011-" + "a" * 12, published_at="2026-10-12T00:00:00Z"),
+        _release_json("engine-20261001-" + "d" * 12, published_at="2026-10-14T00:00:00Z"),
+        _release_json("engine-20261011-" + "a" * 12, published_at="2026-10-12T00:00:00Z"),
     ]
     assert pick_release(releases, "amd64").revision == "a" * 12
 
@@ -242,8 +242,8 @@ def _release_archive(tmp_path: Path, revision: str, *, fail: bool = False) -> by
 
 
 def _github(tmp_path: Path, revision: str, archive: bytes, *, digest: str | None = None):
-    tag = f"backend-20261012-{revision[:12]}"
-    release = _release_json(tag, arch=backend_updater_arch())
+    tag = f"engine-20261012-{revision[:12]}"
+    release = _release_json(tag, arch=engine_updater_arch())
     name = release["assets"][0]["name"]
     sums = f"{digest or hashlib.sha256(archive).hexdigest()}  {name}\n".encode()
 
@@ -259,8 +259,8 @@ def _github(tmp_path: Path, revision: str, archive: bytes, *, digest: str | None
     return httpx.MockTransport(handler)
 
 
-def backend_updater_arch() -> str:
-    from backend_updater import current_arch
+def engine_updater_arch() -> str:
+    from engine_updater import current_arch
 
     return current_arch()
 
@@ -270,7 +270,7 @@ async def test_upgrade_installs_switches_and_rolls_back(tmp_path: Path) -> None:
     write_build(tmp_path / "bundled", REV_A)
     manager = make_manager(tmp_path)
     transport = _github(tmp_path, REV_B, _release_archive(tmp_path, REV_B))
-    updater = BackendUpdater(manager.store, manager, repo="o/r", transport=transport)
+    updater = EngineUpdater(manager.store, manager, repo="o/r", transport=transport)
     steps: list[str] = []
 
     async def progress(text: str) -> None:
@@ -306,7 +306,7 @@ async def test_upgrade_with_bad_checksum_keeps_running_version(tmp_path: Path) -
     write_build(tmp_path / "bundled", REV_A)
     manager = make_manager(tmp_path)
     transport = _github(tmp_path, REV_B, _release_archive(tmp_path, REV_B), digest="0" * 64)
-    updater = BackendUpdater(manager.store, manager, repo="o/r", transport=transport)
+    updater = EngineUpdater(manager.store, manager, repo="o/r", transport=transport)
     try:
         assert await manager.start()
         release = await updater.check()
@@ -323,7 +323,7 @@ async def test_upgrade_to_broken_build_restores_and_remembers(tmp_path: Path) ->
     write_build(tmp_path / "bundled", REV_A)
     manager = make_manager(tmp_path)
     transport = _github(tmp_path, REV_B, _release_archive(tmp_path, REV_B, fail=True))
-    updater = BackendUpdater(manager.store, manager, repo="o/r", transport=transport)
+    updater = EngineUpdater(manager.store, manager, repo="o/r", transport=transport)
     try:
         assert await manager.start()
         release = await updater.check()

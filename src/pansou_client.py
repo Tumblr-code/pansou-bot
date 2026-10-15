@@ -99,7 +99,7 @@ class PansouClient:
         if hasattr(self, '_initialized') and self._initialized:
             return
         self._initialized = True
-        self.base_url = settings.backend_url()
+        self.base_url = settings.engine_url()
         self.timeout = settings.search_timeout
         self.headers = {}
         self.result_cache_ttl = 120
@@ -121,7 +121,7 @@ class PansouClient:
         if self._client is None or self._client.is_closed:
             async with self._lock:
                 if self._client is None or self._client.is_closed:
-                    # 后端在本机，不走代理：代理通常连不到容器内的 127.0.0.1
+                    # 搜索引擎在本机，不走代理：代理通常连不到容器内的 127.0.0.1
                     proxy = None
 
                     timeout = httpx.Timeout(

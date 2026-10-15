@@ -1,3 +1,3 @@
-# 镜像自带的 PanSou 后端版本。scripts/bump_backend.sh 会更新这两行。
+# 镜像自带的 PanSou 搜索引擎版本。scripts/bump_engine.sh 会更新这两行。
 PANSOU_REPOSITORY=https://github.com/fish2018/pansou
 PANSOU_REVISION=221665fb2c9279f22af4684ea2d8c0c331eac1cc

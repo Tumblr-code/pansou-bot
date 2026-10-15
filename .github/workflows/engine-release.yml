@@ -1,6 +1,6 @@
-name: Backend release
+name: Engine release
 
-# 每天检查上游 fish2018/pansou；有新提交就编译后端并发布为 backend-<日期>-<提交号>，
+# 每天检查上游 fish2018/pansou；有新提交就编译搜索引擎并发布为 engine-<日期>-<提交号>，
 # 机器人的 /upgrade 命令从这里下载。也可以手动运行并指定提交。
 on:
   schedule:
@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: backend-release
+  group: engine-release
   cancel-in-progress: false
 
 jobs:
@@ -37,13 +37,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           INPUT_REVISION: ${{ inputs.revision }}
         run: |
-          . backend/UPSTREAM
+          . engine/UPSTREAM
           revision=${INPUT_REVISION:-$(git ls-remote "$PANSOU_REPOSITORY" refs/heads/main | cut -f1)}
           echo "$revision" | grep -Eq '^[0-9a-f]{40}$' || { echo "bad revision: $revision"; exit 1; }
           git init -q up && git -C up fetch -q --depth 1 "$PANSOU_REPOSITORY" "$revision"
           committed_at=$(git -C up log -1 --format=%cI FETCH_HEAD)
           day=$(TZ=UTC date -d "$committed_at" +%Y%m%d)
-          tag="backend-${day}-${revision:0:12}"
+          tag="engine-${day}-${revision:0:12}"
           exists=false
           gh release view "$tag" >/dev/null 2>&1 && exists=true
           {
@@ -71,23 +71,23 @@ jobs:
           go-version: "1.25"
           cache: false
       - name: Build
-        run: sh backend/build.sh --arch ${{ matrix.arch }} --revision ${{ needs.resolve.outputs.revision }} --out "$PWD/out"
+        run: sh engine/build.sh --arch ${{ matrix.arch }} --revision ${{ needs.resolve.outputs.revision }} --out "$PWD/out"
       - name: Smoke test
         if: matrix.arch == 'amd64'
         run: |
           mkdir -p cache
-          (cd out && PORT=18888 CACHE_PATH="$PWD/../cache" ./pansou > ../backend.log 2>&1 &)
+          (cd out && PORT=18888 CACHE_PATH="$PWD/../cache" ./pansou > ../engine.log 2>&1 &)
           for i in $(seq 60); do
             curl -fsS http://127.0.0.1:18888/api/health | grep -q '"status":"ok"' && exit 0
             sleep 1
           done
-          cat backend.log
+          cat engine.log
           exit 1
       - name: Package
         run: tar -C out -czf pansou-linux-${{ matrix.arch }}.tar.gz pansou defaults.env VERSION.json LICENSE
       - uses: actions/upload-artifact@v4
         with:
-          name: backend-${{ matrix.arch }}
+          name: engine-${{ matrix.arch }}
           path: pansou-linux-${{ matrix.arch }}.tar.gz
 
   publish:
@@ -101,7 +101,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: backend-*
+          pattern: engine-*
           merge-multiple: true
       - run: sha256sum pansou-linux-*.tar.gz > SHA256SUMS && cat SHA256SUMS
       - uses: actions/attest-build-provenance@v2
@@ -115,11 +115,11 @@ jobs:
           COMMITTED_AT: ${{ needs.resolve.outputs.committed_at }}
         run: |
           cat > notes.md <<NOTES
-          PanSou 后端，编译自上游 [fish2018/pansou@${REVISION:0:12}](https://github.com/fish2018/pansou/commit/${REVISION})（提交于 ${COMMITTED_AT}）。
+          PanSou 搜索引擎，编译自上游 [fish2018/pansou@${REVISION:0:12}](https://github.com/fish2018/pansou/commit/${REVISION})（提交于 ${COMMITTED_AT}）。
 
           机器人管理员发送 \`/upgrade\` 即可在线升级到这个版本。压缩包的 SHA256 见 \`SHA256SUMS\`，构建来源可以用 \`gh attestation verify <文件> -R ${GITHUB_REPOSITORY}\` 验证。
 
           Built from upstream fish2018/pansou at ${REVISION}. Send \`/upgrade\` to the bot to install it.
           NOTES
           gh release create "$TAG" pansou-linux-*.tar.gz SHA256SUMS \
-            --repo "$GITHUB_REPOSITORY" --title "Backend ${TAG#backend-}" --notes-file notes.md --latest=false
+            --repo "$GITHUB_REPOSITORY" --title "PanSou Engine ${TAG#engine-}" --notes-file notes.md --latest=false

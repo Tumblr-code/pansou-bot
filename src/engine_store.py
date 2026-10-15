@@ -1,7 +1,7 @@
-"""内置 PanSou 后端的磁盘布局、版本信息和切换状态。
+"""PanSou 搜索引擎的磁盘布局、版本信息和切换状态。
 
     <bundled_dir>/            镜像自带的版本（只读）
-    <data_dir>/backend/
+    <data_dir>/engine/
         releases/<rev12>/     在线升级下载的版本：pansou、defaults.env、VERSION.json、LICENSE
         state.json            当前版本、上一个版本、失败过的版本
         cache/                PanSou 的 CACHE_PATH
@@ -26,8 +26,8 @@ ENV_LINE_RE = re.compile(r"^([A-Z_][A-Z0-9_]*)=(.*)$")
 
 
 @dataclass(frozen=True)
-class BackendBuild:
-    """一个可运行的后端版本。"""
+class EngineBuild:
+    """一个可运行的搜索引擎版本。"""
 
     key: str  # "bundled" 或 12 位提交号
     directory: Path
@@ -53,7 +53,7 @@ class BackendBuild:
 
 
 @dataclass
-class BackendState:
+class EngineState:
     active: Optional[str] = None
     previous: Optional[str] = None
     bad: list[str] = field(default_factory=list)
@@ -73,7 +73,7 @@ def parse_env_file(path: Path) -> dict[str, str]:
     return values
 
 
-def load_build(key: str, directory: Path) -> Optional[BackendBuild]:
+def load_build(key: str, directory: Path) -> Optional[EngineBuild]:
     """读取目录里的版本；可执行文件缺失时返回 None。"""
     binary = directory / BINARY_NAME
     if not binary.is_file() or not os.access(binary, os.X_OK):
@@ -85,7 +85,7 @@ def load_build(key: str, directory: Path) -> Optional[BackendBuild]:
     except (OSError, ValueError):
         meta = {}
     revision = str(meta.get("revision", ""))
-    return BackendBuild(
+    return EngineBuild(
         key=key,
         directory=directory,
         revision=revision if REVISION_RE.match(revision) else "",
@@ -94,9 +94,9 @@ def load_build(key: str, directory: Path) -> Optional[BackendBuild]:
     )
 
 
-class BackendStore:
+class EngineStore:
     def __init__(self, data_dir: Path, bundled_dir: Path):
-        self.root = Path(data_dir) / "backend"
+        self.root = Path(data_dir) / "engine"
         self.bundled_dir = Path(bundled_dir)
         self.releases_dir = self.root / "releases"
         self.cache_dir = self.root / "cache"
@@ -109,22 +109,22 @@ class BackendStore:
 
     # ---- state ----
 
-    def load_state(self) -> BackendState:
+    def load_state(self) -> EngineState:
         try:
             raw = json.loads(self.state_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return BackendState()
+            return EngineState()
         if not isinstance(raw, dict):
-            return BackendState()
+            return EngineState()
         bad = raw.get("bad") if isinstance(raw.get("bad"), list) else []
-        return BackendState(
+        return EngineState(
             active=raw.get("active") if isinstance(raw.get("active"), str) else None,
             previous=raw.get("previous") if isinstance(raw.get("previous"), str) else None,
             bad=[item for item in bad if isinstance(item, str)][-20:],
             notified=raw.get("notified") if isinstance(raw.get("notified"), str) else None,
         )
 
-    def save_state(self, state: BackendState) -> None:
+    def save_state(self, state: EngineState) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(state.__dict__, ensure_ascii=False, indent=2)
         fd, tmp = tempfile.mkstemp(dir=self.root, prefix=".state.", suffix=".tmp")
@@ -140,25 +140,25 @@ class BackendStore:
 
     # ---- builds ----
 
-    def bundled(self) -> Optional[BackendBuild]:
+    def bundled(self) -> Optional[EngineBuild]:
         return load_build(BUNDLED, self.bundled_dir)
 
-    def release(self, key: str) -> Optional[BackendBuild]:
+    def release(self, key: str) -> Optional[EngineBuild]:
         if not REVISION_RE.match(key):
             return None
         return load_build(key, self.releases_dir / key)
 
-    def get(self, key: Optional[str]) -> Optional[BackendBuild]:
+    def get(self, key: Optional[str]) -> Optional[EngineBuild]:
         if not key:
             return None
         return self.bundled() if key == BUNDLED else self.release(key)
 
-    def preferred(self) -> Optional[BackendBuild]:
+    def preferred(self) -> Optional[EngineBuild]:
         """当前应运行的版本：state 里的 active，不可用时退回镜像自带版本。"""
         state = self.load_state()
         return self.get(state.active) or self.bundled()
 
-    def fallback_for(self, failed: BackendBuild) -> Optional[BackendBuild]:
+    def fallback_for(self, failed: EngineBuild) -> Optional[EngineBuild]:
         state = self.load_state()
         for key in (state.previous, BUNDLED):
             build = self.get(key)
