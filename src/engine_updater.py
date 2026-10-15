@@ -1,7 +1,7 @@
-"""从 GitHub Releases 在线升级内置后端。
+"""从 GitHub Releases 在线升级搜索引擎。
 
-发布约定（由 .github/workflows/backend-release.yml 生成）：
-  标签       backend-<YYYYMMDD>-<12 位上游提交号>
+发布约定（由 .github/workflows/engine-release.yml 生成）：
+  标签       engine-<YYYYMMDD>-<12 位上游提交号>
   资产       pansou-linux-<amd64|arm64>.tar.gz、SHA256SUMS
 压缩包里只允许 pansou、defaults.env、VERSION.json、LICENSE 四个普通文件。
 """
@@ -21,12 +21,12 @@ from typing import Awaitable, Callable, Optional
 import httpx
 from structlog import get_logger
 
-from backend_manager import BackendManager
-from backend_store import BUNDLED, RELEASE_FILES, BackendBuild, BackendStore, load_build
+from engine_manager import EngineManager
+from engine_store import BUNDLED, RELEASE_FILES, EngineBuild, EngineStore, load_build
 
 logger = get_logger()
 
-TAG_RE = re.compile(r"^backend-(\d{8})-([0-9a-f]{12})$")
+TAG_RE = re.compile(r"^engine-(\d{8})-([0-9a-f]{12})$")
 MAX_ARCHIVE_BYTES = 200 * 1024 * 1024
 MAX_SUMS_BYTES = 64 * 1024
 ARCHES = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
@@ -57,7 +57,7 @@ def current_arch() -> str:
 
 
 def pick_release(releases: list, arch: str) -> Optional[RemoteRelease]:
-    """找上游提交日期最新的完整后端版本（不按发布先后：补发的旧版本不能顶替新版本）。"""
+    """找上游提交日期最新的完整搜索引擎版本（不按发布先后：补发的旧版本不能顶替新版本）。"""
     archive_name = f"pansou-linux-{arch}.tar.gz"
     candidates = []
     for item in releases:
@@ -120,11 +120,11 @@ def extract_release(archive: Path, target: Path) -> None:
     (target / "pansou").chmod(0o755)
 
 
-class BackendUpdater:
+class EngineUpdater:
     def __init__(
         self,
-        store: BackendStore,
-        manager: BackendManager,
+        store: EngineStore,
+        manager: EngineManager,
         *,
         repo: str,
         proxy: Optional[str] = None,
@@ -191,7 +191,7 @@ class BackendUpdater:
                     out.write(chunk)
         return digest.hexdigest()
 
-    async def install(self, release: RemoteRelease, progress: Optional[Progress] = None) -> BackendBuild:
+    async def install(self, release: RemoteRelease, progress: Optional[Progress] = None) -> EngineBuild:
         """下载、校验、切换；切换失败时原版本继续运行。"""
 
         async def report(text: str) -> None:
@@ -241,7 +241,7 @@ class BackendUpdater:
 
             build = load_build(release.revision, target)
             assert build is not None
-            await report("🔄 正在切换后端…")
+            await report("🔄 正在切换搜索引擎…")
             if not await self.manager.switch(build):
                 state = self.store.load_state()
                 state.bad = [*state.bad, release.revision][-20:]
@@ -254,10 +254,10 @@ class BackendUpdater:
             state.active = build.key
             self.store.save_state(state)
             self.store.prune({k for k in (state.active, state.previous) if k and k != BUNDLED})
-            logger.info("backend_upgraded", revision=build.short, previous=state.previous)
+            logger.info("engine_upgraded", revision=build.short, previous=state.previous)
             return build
 
-    async def rollback(self) -> BackendBuild:
+    async def rollback(self) -> EngineBuild:
         if self._lock.locked():
             raise UpgradeError("已有升级正在进行")
         async with self._lock:
@@ -271,5 +271,5 @@ class BackendUpdater:
             state.previous = current.key if current else None
             state.active = target.key
             self.store.save_state(state)
-            logger.info("backend_rolled_back", revision=target.short)
+            logger.info("engine_rolled_back", revision=target.short)
             return target

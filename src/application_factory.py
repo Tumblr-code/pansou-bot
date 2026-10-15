@@ -12,9 +12,9 @@ from telegram.ext import (
     filters,
 )
 
-from backend_commands import CALLBACK_PATTERN as BACKEND_CALLBACK_PATTERN
 from bot_config import create_optimized_request
 from config import settings
+from engine_commands import CALLBACK_PATTERN as ENGINE_CALLBACK_PATTERN
 
 
 @dataclass(frozen=True)
@@ -30,9 +30,8 @@ class BotHandlerSet:
     reset: Callable
     status: Callable
     refresh: Callable
-    backend: Callable
     upgrade: Callable
-    backend_callback: Callable
+    engine_callback: Callable
     search: Callable
     callback: Callable
     private_message: Callable
@@ -66,7 +65,6 @@ def create_application(
         ("reset", handlers.reset),
         ("status", handlers.status),
         ("refresh", handlers.refresh),
-        ("backend", handlers.backend),
         ("upgrade", handlers.upgrade),
         ("search", handlers.search),
     ):
@@ -80,7 +78,7 @@ def create_application(
         )
     )
     application.add_handler(
-        CallbackQueryHandler(handlers.backend_callback, pattern=BACKEND_CALLBACK_PATTERN)
+        CallbackQueryHandler(handlers.engine_callback, pattern=ENGINE_CALLBACK_PATTERN)
     )
     application.add_handler(CallbackQueryHandler(handlers.callback))
     application.add_handler(

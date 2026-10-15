@@ -1,12 +1,12 @@
 #!/bin/sh
-# 从上游源码构建 PanSou 后端，输出可直接运行或打包发布的目录：
+# 从上游源码构建 PanSou 搜索引擎，输出可直接运行或打包发布的目录：
 #   pansou          静态链接的可执行文件
 #   defaults.env    上游 Dockerfile 里的默认环境变量（频道、插件列表等）
 #   VERSION.json    上游提交号与提交时间
 #   LICENSE         上游许可证
 #
 # 用法：build.sh --arch amd64|arm64 --out DIR [--revision SHA] [--repository URL]
-# 不指定 --revision 时使用 backend/UPSTREAM 里固定的版本。需要 git 和 go。
+# 不指定 --revision 时使用 engine/UPSTREAM 里固定的版本。需要 git 和 go。
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)

@@ -1,4 +1,4 @@
-"""启动并看护内置的 PanSou 后端进程。"""
+"""启动并看护 PanSou 搜索引擎进程。"""
 from __future__ import annotations
 
 import asyncio
@@ -13,11 +13,11 @@ import httpx
 from dotenv import dotenv_values
 from structlog import get_logger
 
-from backend_store import BackendBuild, BackendStore
+from engine_store import EngineBuild, EngineStore
 
 logger = get_logger()
 
-# 只属于机器人的密钥，不传给后端进程
+# 只属于机器人的密钥，不传给搜索引擎进程
 BOT_ONLY_ENV = frozenset(
     {"TG_BOT_TOKEN", "TMDB_READ_ACCESS_TOKEN", "TMDB_API_KEY"}
 )
@@ -29,15 +29,15 @@ CRASH_LOOP_WINDOW = 120
 CRASH_LOOP_LIMIT = 3
 
 
-def build_backend_env(
-    build: BackendBuild,
+def build_engine_env(
+    build: EngineBuild,
     *,
     port: int,
     cache_dir: Path,
     base_env: Optional[Mapping[str, str]] = None,
     env_file: Optional[Path] = Path(".env"),
 ) -> dict[str, str]:
-    """组合后端环境变量：版本默认值 < .env < 进程环境；端口和缓存目录固定。"""
+    """组合搜索引擎环境变量：版本默认值 < .env < 进程环境；端口和缓存目录固定。"""
     env: dict[str, str] = {}
     if env_file is not None and env_file.is_file():
         env.update({k: v for k, v in dotenv_values(env_file).items() if v is not None})
@@ -58,10 +58,10 @@ def port_in_use(port: int) -> bool:
         return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
-class BackendManager:
+class EngineManager:
     def __init__(
         self,
-        store: BackendStore,
+        store: EngineStore,
         *,
         port: int,
         start_timeout: float = 60,
@@ -74,7 +74,7 @@ class BackendManager:
         self.base_env = base_env
         self.env_file = env_file
         self.url = f"http://127.0.0.1:{port}"
-        self.build: Optional[BackendBuild] = None
+        self.build: Optional[EngineBuild] = None
         self.started_at: Optional[float] = None
         self._process: Optional[asyncio.subprocess.Process] = None
         self._monitor: Optional[asyncio.Task] = None
@@ -109,14 +109,14 @@ class BackendManager:
             self.store.ensure_dirs()
             build = self.store.preferred()
             if build is None:
-                logger.error("backend_missing", bundled_dir=str(self.store.bundled_dir))
+                logger.error("engine_missing", bundled_dir=str(self.store.bundled_dir))
                 return False
             if await self._launch(build):
                 return True
             fallback = self.store.fallback_for(build)
             if fallback is None:
                 return False
-            logger.warning("backend_fallback", failed=build.key, fallback=fallback.key)
+            logger.warning("engine_fallback", failed=build.key, fallback=fallback.key)
             return await self._launch(fallback)
 
     async def stop(self) -> None:
@@ -125,25 +125,25 @@ class BackendManager:
         async with self._lock:
             await self._terminate()
 
-    async def switch(self, build: BackendBuild) -> bool:
+    async def switch(self, build: EngineBuild) -> bool:
         """切换到另一个版本；新版本起不来时恢复原来的版本。"""
         async with self._lock:
             previous = self.build
             await self._terminate()
             if await self._launch(build):
                 return True
-            logger.warning("backend_switch_failed", target=build.key)
+            logger.warning("engine_switch_failed", target=build.key)
             if previous is not None:
                 await self._launch(previous)
             return False
 
     # ---- 内部 ----
 
-    async def _launch(self, build: BackendBuild) -> bool:
+    async def _launch(self, build: EngineBuild) -> bool:
         if port_in_use(self.port):
-            logger.error("backend_port_in_use", port=self.port)
+            logger.error("engine_port_in_use", port=self.port)
             return False
-        env = build_backend_env(
+        env = build_engine_env(
             build,
             port=self.port,
             cache_dir=self.store.cache_dir,
@@ -159,23 +159,23 @@ class BackendManager:
                 start_new_session=True,
             )
         except OSError as exc:
-            logger.error("backend_exec_failed", build=build.key, error_type=type(exc).__name__)
+            logger.error("engine_exec_failed", build=build.key, error_type=type(exc).__name__)
             return False
 
         self._process, self.build, self.started_at = process, build, time.monotonic()
-        logger.info("backend_starting", build=build.key, revision=build.short, pid=process.pid)
+        logger.info("engine_starting", build=build.key, revision=build.short, pid=process.pid)
 
         deadline = time.monotonic() + self.start_timeout
         while time.monotonic() < deadline:
             if process.returncode is not None:
                 break
             if await self.healthy():
-                logger.info("backend_ready", build=build.key, revision=build.short)
+                logger.info("engine_ready", build=build.key, revision=build.short)
                 self._monitor = asyncio.create_task(self._watch(process))
                 return True
             await asyncio.sleep(0.5)
 
-        logger.error("backend_start_failed", build=build.key, returncode=process.returncode)
+        logger.error("engine_start_failed", build=build.key, returncode=process.returncode)
         await self._terminate()
         return False
 
@@ -204,7 +204,7 @@ class BackendManager:
         async with self._lock:
             if self._stopping or self._process is not process:
                 return
-            logger.error("backend_exited", returncode=returncode, build=self.build and self.build.key)
+            logger.error("engine_exited", returncode=returncode, build=self.build and self.build.key)
             now = time.monotonic()
             uptime = now - (self.started_at or now)
             self._crash_times = [t for t in self._crash_times if now - t < CRASH_LOOP_WINDOW]
@@ -218,7 +218,7 @@ class BackendManager:
                 and len(self._crash_times) >= CRASH_LOOP_LIMIT
                 and (fallback := self.store.fallback_for(build)) is not None
             ):
-                logger.warning("backend_crash_loop_fallback", failed=build.key, fallback=fallback.key)
+                logger.warning("engine_crash_loop_fallback", failed=build.key, fallback=fallback.key)
                 build = fallback
                 self._crash_times = []
 

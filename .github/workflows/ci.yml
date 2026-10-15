@@ -56,9 +56,9 @@ jobs:
           tags: pansou-bot:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Bundled backend starts and passes its health check
-        run: docker run --rm --read-only --tmpfs /tmp pansou-bot:ci python main.py check-backend
-      - name: Bundled backend carries upstream defaults
+      - name: Bundled engine starts and passes its health check
+        run: docker run --rm --read-only --tmpfs /tmp pansou-bot:ci python main.py check-engine
+      - name: Bundled engine carries upstream defaults
         run: |
           docker run --rm --entrypoint sh pansou-bot:ci -c \
             'cat /opt/pansou/VERSION.json && grep -q "^CHANNELS=" /opt/pansou/defaults.env && grep -q "^ENABLED_PLUGINS=" /opt/pansou/defaults.env'
